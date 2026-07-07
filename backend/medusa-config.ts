@@ -25,5 +25,14 @@ module.exports = defineConfig({
     },
   },
   plugins: [],
-  modules: {},
+  modules: [
+    // Custom v2 modules. Array form is the recommended v2 config shape
+    // (@medusajs/types InputConfigWithArrayModules). Each entry resolves the
+    // module's index.ts which exports `Module("key", { service })`; the key
+    // is the container registration name used by `container.resolve(key)`.
+    { resolve: "./src/modules/pincode", key: "pincode" },
+    { resolve: "./src/modules/review", key: "review" },
+    { resolve: "./src/modules/wishlist", key: "wishlist" },
+    { resolve: "./src/modules/return-request", key: "return_request" },
+  ],
 })
