@@ -1,59 +1,75 @@
-// API service layer — wraps Medusa client and custom endpoints
-// All storefront data fetching goes through this module
+// API service layer — wraps the Medusa v2 JS SDK (@medusajs/js-sdk) and custom
+// storefront endpoints.
+//
+// M4b: migrated from the v1-era Medusa JS client to the v2 @medusajs/js-sdk.
+// Key v2 adaptations:
+//   - The SDK is constructed with `publishableKey` (sent as the
+//     `x-publishable-api-key` header on every /store/* call) and
+//     `auth: { type: "session" }` (cookie-based customer auth).
+//   - Prices live on the variant as `calculated_amount` / `original_amount`
+//     (paise), only returned when `region_id` + `fields=+variants.calculated_price`
+//     are passed on product fetches.
+//   - Customer auth is `sdk.auth.login("customer","emailpass",...)` which (with
+//     session auth) mints an httpOnly cookie; subsequent store calls are scoped.
+//   - Cart/order/customer methods map to the v2 SDK resource methods.
+//   - Custom routes (pincodes/reviews/wishlist/returns) use `sdk.client.fetch`,
+//     which reuses the same publishable-key + cookie headers.
 
-import Medusa from "@medusajs/medusa-js"
+import Medusa from "@medusajs/js-sdk"
 
 const MEDUSA_URL = process.env.NEXT_PUBLIC_MEDUSA_URL || "http://localhost:9000"
+const PUBLISHABLE_KEY =
+  process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY ||
+  "pk_91ca8864dd17243297fcbd5afda4b2c2d41e3eee8ff0facf20ab9c9f3b7350b7"
 
-// Medusa JS SDK client — lazy init to avoid build-time connection hangs
-let _medusaClient: any = null
-function getMedusaClient() {
-  if (!_medusaClient) {
-    _medusaClient = new Medusa({
-      baseUrl: MEDUSA_URL,
-      maxRetries: 1,
-    })
-  }
-  return _medusaClient
-}
-
-export const medusaClient = new Proxy({} as any, {
-  get(_, prop) {
-    return getMedusaClient()[prop as string]
-  },
+// v2 SDK client — single shared instance. `auth: { type: "session" }` makes the
+// SDK exchange the JWT from /auth/customer/emailpass for an httpOnly session
+// cookie (POST /auth/session) and send `credentials: "include"` on every call.
+export const sdk = new Medusa({
+  baseUrl: MEDUSA_URL,
+  publishableKey: PUBLISHABLE_KEY,
+  auth: { type: "session" },
 })
 
 // ---------------------------------------------------------------------------
-// Generic fetch helper for custom endpoints
+// Default region + pricing context
 // ---------------------------------------------------------------------------
-async function fetchAPI<T = any>(
-  endpoint: string,
-  options: RequestInit = {},
-  timeoutMs = 5000
-): Promise<T> {
-  const url = `${MEDUSA_URL}${endpoint}`
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
-  try {
-    const res = await fetch(url, {
-      headers: {
-        "Content-Type": "application/json",
-        ...options.headers,
-      },
-      signal: controller.signal,
-      ...options,
-    })
-    clearTimeout(timeoutId)
-    if (!res.ok) {
-      const error = await res.json().catch(() => ({ message: "An error occurred" }))
-      throw new Error(error.message || `API error: ${res.status}`)
+// v2 only returns variant prices when a `region_id` is supplied (requesting
+// `calculated_price` without it 400s). We fetch the regions once, pick the
+// India/INR region (fallback: first region) and cache the id for every product
+// fetch. Cached in module scope; on the client this persists for the session.
+
+let _defaultRegionId: string | null = null
+let _defaultRegionPromise: Promise<string | null> | null = null
+
+export async function getDefaultRegionId(): Promise<string | null> {
+  if (_defaultRegionId) return _defaultRegionId
+  if (_defaultRegionPromise) return _defaultRegionPromise
+  _defaultRegionPromise = (async () => {
+    try {
+      const { regions } = await sdk.store.region.list()
+      const inRegion = regions.find(
+        (r: any) =>
+          r.currency_code === "inr" ||
+          (r.countries || []).some((c: any) => c.iso_2 === "in")
+      )
+      const id = (inRegion || regions[0])?.id || null
+      _defaultRegionId = id
+      return id
+    } catch (err) {
+      console.warn("Failed to load regions for pricing context:", err)
+      return null
     }
-    return res.json()
-  } catch (err) {
-    clearTimeout(timeoutId)
-    throw err
-  }
+  })()
+  return _defaultRegionPromise
 }
+
+// Fields requested on every product fetch so the UI gets prices + categories.
+// `+variants.calculated_price` adds the paise price fields to the variant's
+// default field set; `*categories` expands the category relation (the `+`
+// prefix does not load relations — only `*` does). The default product fields
+// already include images, options, tags, variants and collection.
+const PRODUCT_FIELDS = "+variants.calculated_price,*categories"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -78,9 +94,18 @@ export interface MedusaVariant {
   id: string
   title: string
   sku: string
-  prices: { amount: number; currency_code: string }[]
-  inventory_quantity: number
-  options: { value: string }[]
+  // v2 pricing: paise values, present only when region_id + calculated_price
+  // fields are requested. `calculated_amount` is the sell price, `original_amount`
+  // the list/strikethrough price.
+  calculated_amount?: number
+  original_amount?: number
+  calculated_price?: {
+    calculated_amount: number
+    original_amount: number
+    currency_code?: string
+  }
+  inventory_quantity?: number
+  options: { value: string; id?: string }[]
 }
 
 export interface MedusaProductOption {
@@ -186,64 +211,84 @@ export async function getProducts(params?: {
   price_from?: number
   price_to?: number
   q?: string
+  handle?: string
 }): Promise<{ products: MedusaProduct[]; count: number; offset: number; limit: number }> {
-  const searchParams = new URLSearchParams()
-  if (params?.limit) searchParams.set("limit", String(params.limit))
-  if (params?.offset) searchParams.set("offset", String(params.offset))
-  if (params?.category_id?.length) params.category_id.forEach((id) => searchParams.append("category_id[]", id))
-  if (params?.collection_id?.length) params.collection_id.forEach((id) => searchParams.append("collection_id[]", id))
-  if (params?.tags?.length) params.tags.forEach((t) => searchParams.append("tags[]", t))
-  if (params?.price_from) searchParams.set("price_from", String(params.price_from))
-  if (params?.price_to) searchParams.set("price_to", String(params.price_to))
-  if (params?.q) searchParams.set("q", params.q)
+  const region_id = await getDefaultRegionId()
+  const query: Record<string, any> = {
+    limit: params?.limit ?? 20,
+    offset: params?.offset ?? 0,
+    fields: PRODUCT_FIELDS,
+  }
+  if (region_id) query.region_id = region_id
+  if (params?.category_id?.length) query.category_id = params.category_id
+  if (params?.collection_id?.length) query.collection_id = params.collection_id
+  if (params?.tags?.length) query.tag_id = params.tags
+  if (params?.price_from != null) query.price_from = params.price_from
+  if (params?.price_to != null) query.price_to = params.price_to
+  if (params?.q) query.q = params.q
+  if (params?.handle) query.handle = params.handle
 
-  const qs = searchParams.toString()
-  return medusaClient.products.list(qs ? `?${qs}` : "")
+  const result = await sdk.store.product.list(query)
+  return {
+    products: (result.products as any) || [],
+    count: (result as any).count ?? result.products?.length ?? 0,
+    offset: (result as any).offset ?? 0,
+    limit: (result as any).limit ?? params?.limit ?? 20,
+  }
 }
 
 export async function getProduct(handle: string): Promise<MedusaProduct> {
-  const result = await medusaClient.products.list({ handle })
-  if (!result.products || result.products.length === 0) throw new Error(`Product not found: ${handle}`)
-  return result.products[0]
+  // v2 store product list supports a `handle` filter.
+  const { products } = await getProducts({ handle, limit: 1 })
+  if (!products || products.length === 0) throw new Error(`Product not found: ${handle}`)
+  return products[0]
 }
 
 export async function getProductById(id: string): Promise<MedusaProduct> {
-  const { product } = await medusaClient.products.retrieve(id)
-  return product
+  const region_id = await getDefaultRegionId()
+  const { product } = await sdk.store.product.retrieve(id, {
+    fields: PRODUCT_FIELDS,
+    ...(region_id ? { region_id } : {}),
+  } as any)
+  return product as any
 }
 
 // ---------------------------------------------------------------------------
 // Collections
 // ---------------------------------------------------------------------------
 export async function getCollections(): Promise<MedusaCollection[]> {
-  const { collections } = await medusaClient.collections.list()
-  return collections
+  const { collections } = await sdk.store.collection.list()
+  return (collections as any) || []
 }
 
 export async function getCollectionByHandle(handle: string): Promise<MedusaCollection> {
-  const { collection } = await medusaClient.collections.retrieve(handle)
-  return collection
+  // v2 collection.retrieve takes an id, not a handle. Find via list.
+  const collections = await getCollections()
+  const found = collections.find((c) => c.handle === handle)
+  if (!found) throw new Error(`Collection not found: ${handle}`)
+  return found
 }
 
 // ---------------------------------------------------------------------------
 // Categories
 // ---------------------------------------------------------------------------
 export async function getCategories(): Promise<MedusaCategory[]> {
-  const { product_categories } = await medusaClient.productCategories.list()
-  return product_categories
+  const { product_categories } = await sdk.store.category.list()
+  return (product_categories as any) || []
 }
 
 // ---------------------------------------------------------------------------
 // Cart
 // ---------------------------------------------------------------------------
 export async function createCart(regionId?: string): Promise<MedusaCart> {
-  const { cart } = await medusaClient.carts.create({ region_id: regionId })
-  return cart
+  const rid = regionId || (await getDefaultRegionId()) || undefined
+  const { cart } = await sdk.store.cart.create({ region_id: rid } as any)
+  return cart as any
 }
 
 export async function getCart(cartId: string): Promise<MedusaCart> {
-  const { cart } = await medusaClient.carts.retrieve(cartId)
-  return cart
+  const { cart } = await sdk.store.cart.retrieve(cartId)
+  return cart as any
 }
 
 export async function addToCart(
@@ -251,11 +296,11 @@ export async function addToCart(
   variantId: string,
   quantity: number
 ): Promise<MedusaCart> {
-  const { cart } = await medusaClient.carts.lineItems.create(cartId, {
+  const { cart } = await sdk.store.cart.createLineItem(cartId, {
     variant_id: variantId,
     quantity,
-  })
-  return cart
+  } as any)
+  return cart as any
 }
 
 export async function updateCartItem(
@@ -263,101 +308,119 @@ export async function updateCartItem(
   lineItemId: string,
   quantity: number
 ): Promise<MedusaCart> {
-  const { cart } = await medusaClient.carts.lineItems.update(cartId, lineItemId, {
+  const { cart } = await sdk.store.cart.updateLineItem(cartId, lineItemId, {
     quantity,
-  })
-  return cart
+  } as any)
+  return cart as any
 }
 
 export async function removeCartItem(
   cartId: string,
   lineItemId: string
 ): Promise<MedusaCart> {
-  const { cart } = await medusaClient.carts.lineItems.delete(cartId, lineItemId)
-  return cart
+  // v2 deleteLineItem returns { deleted, parent: cart } (not { cart }).
+  const result: any = await sdk.store.cart.deleteLineItem(cartId, lineItemId)
+  return (result.parent ?? result.cart) as MedusaCart
 }
 
 export async function setCartShippingAddress(
   cartId: string,
   address: Partial<MedusaAddress>
 ): Promise<MedusaCart> {
-  const { cart } = await medusaClient.carts.update(cartId, {
-    shipping_address: address,
-  })
-  return cart
+  const { cart } = await sdk.store.cart.update(cartId, {
+    shipping_address: address as any,
+  } as any)
+  return cart as any
 }
 
 export async function setCartShippingMethod(
   cartId: string,
   shippingOptionId: string
 ): Promise<MedusaCart> {
-  const { cart } = await medusaClient.carts.addShippingMethod(cartId, {
+  const { cart } = await sdk.store.cart.addShippingMethod(cartId, {
     option_id: shippingOptionId,
-  })
-  return cart
+  } as any)
+  return cart as any
 }
 
 export async function createPaymentSession(cartId: string): Promise<MedusaCart> {
-  const { cart } = await medusaClient.carts.createPaymentSessions(cartId)
-  return cart
+  // v2 separates payment collection/session init from the cart. We return the
+  // current cart here; the provider is selected in setPaymentSession below.
+  return getCart(cartId)
 }
 
 export async function setPaymentSession(
   cartId: string,
   providerId: string
 ): Promise<MedusaCart> {
-  const { cart } = await medusaClient.carts.setPaymentSession(cartId, {
-    provider_id: providerId,
-  })
-  return cart
+  try {
+    const cart = await getCart(cartId)
+    await sdk.store.payment.initiatePaymentSession(cart as any, {
+      provider_id: providerId,
+    } as any)
+  } catch (err) {
+    // A payment provider may not be configured (e.g. COD). Surface the cart so
+    // the page can proceed; the complete step will report a hard failure.
+    console.warn("Failed to initiate payment session:", err)
+  }
+  return getCart(cartId)
 }
 
 export async function completeCart(cartId: string): Promise<{ type: string; data: any }> {
-  return medusaClient.carts.complete(cartId)
+  // v2 returns { type: "order", order } on success or { type: "cart", error, cart }
+  // on failure. Map to the { type, data } shape the checkout page expects.
+  const result: any = await sdk.store.cart.complete(cartId)
+  return {
+    type: result.type,
+    data: result.type === "order" ? result.order : result.cart,
+  }
 }
 
 export async function applyCartDiscount(cartId: string, code: string): Promise<MedusaCart> {
-  // The installed SDK has no carts.addDiscount method. Discounts are applied by
-  // updating the cart with a discounts array: POST /store/carts/{id} { discounts: [{ code }] }.
-  const { cart } = await medusaClient.carts.update(cartId, { discounts: [{ code }] })
-  return cart
+  const { cart } = await sdk.store.cart.addPromotions(cartId, {
+    promo_codes: [code],
+  } as any)
+  return cart as any
 }
 
 export async function removeCartDiscount(cartId: string, code: string): Promise<MedusaCart> {
-  const { cart } = await medusaClient.carts.deleteDiscount(cartId, code)
-  return cart
+  const { cart } = await sdk.store.cart.removePromotions(cartId, {
+    promo_codes: [code],
+  } as any)
+  return cart as any
 }
 
 // ---------------------------------------------------------------------------
 // Shipping Options
 // ---------------------------------------------------------------------------
 export async function getShippingOptions(cartId: string): Promise<any[]> {
-  const { shipping_options } = await medusaClient.shippingOptions.listCartOptions(cartId)
-  return shipping_options
+  const { shipping_options } = await sdk.store.fulfillment.listCartOptions({
+    cart_id: cartId,
+  } as any)
+  return (shipping_options as any) || []
 }
 
 // ---------------------------------------------------------------------------
 // Regions
 // ---------------------------------------------------------------------------
 export async function getRegions(): Promise<any[]> {
-  const { regions } = await medusaClient.regions.list()
-  return regions
+  const { regions } = await sdk.store.region.list()
+  return (regions as any) || []
 }
 
 // ---------------------------------------------------------------------------
 // Orders
 // ---------------------------------------------------------------------------
 export async function getOrders(): Promise<MedusaOrder[]> {
-  // v2 store API auto-scopes orders to the logged-in customer session.
-  // The installed @medusajs/medusa-js SDK (v2.0.2) exposes this via
-  // customers.listOrders() -> GET /store/customers/me/orders (cookie-scoped).
-  const { orders } = await medusaClient.customers.listOrders()
-  return orders
+  // v2 store orders are scoped to the logged-in customer session — no
+  // customer_id param is required.
+  const { orders } = await sdk.store.order.list()
+  return (orders as any) || []
 }
 
 export async function getOrder(orderId: string): Promise<MedusaOrder> {
-  const { order } = await medusaClient.orders.retrieve(orderId)
-  return order
+  const { order } = await sdk.store.order.retrieve(orderId)
+  return order as any
 }
 
 // ---------------------------------------------------------------------------
@@ -370,26 +433,53 @@ export async function registerCustomer(data: {
   last_name?: string
   phone?: string
 }): Promise<{ customer: MedusaCustomer }> {
-  return medusaClient.customers.create(data)
+  // v2 registration is two steps: obtain a registration JWT via
+  // sdk.auth.register, then create the customer with that token as a Bearer
+  // header. After creation we log in so a session cookie is minted.
+  const token = await sdk.auth.register("customer", "emailpass", {
+    email: data.email,
+    password: data.password,
+  } as any)
+
+  const { customer } = await sdk.store.customer.create(
+    {
+      email: data.email,
+      first_name: data.first_name,
+      last_name: data.last_name,
+      phone: data.phone,
+    } as any,
+    {},
+    { Authorization: `Bearer ${token}` }
+  )
+
+  // Establish a session so /account/* pages see the logged-in customer.
+  await sdk.auth.login("customer", "emailpass", {
+    email: data.email,
+    password: data.password,
+  } as any)
+
+  return { customer: customer as any }
 }
 
-export async function loginCustomer(email: string, password: string): Promise<{ customer: MedusaCustomer }> {
-  // The installed SDK uses auth.authenticate (POST /store/auth). The session is
-  // persisted automatically via an httpOnly cookie — the axios client is created
-  // with `withCredentials: true`, so the browser sends the cookie on later
-  // requests (e.g. customers.retrieve -> /store/customers/me).
-  return medusaClient.auth.authenticate({ email, password })
+export async function loginCustomer(
+  email: string,
+  password: string
+): Promise<{ customer: MedusaCustomer }> {
+  // With auth.type "session", sdk.auth.login posts to
+  // /auth/customer/emailpass then /auth/session — the cookie is set and
+  // subsequent store calls are authenticated.
+  await sdk.auth.login("customer", "emailpass", { email, password } as any)
+  const customer = await getCustomer()
+  return { customer }
 }
 
 export async function logoutCustomer(): Promise<void> {
-  // DELETE /store/auth clears the server-side session cookie.
-  await medusaClient.auth.deleteSession()
+  await sdk.auth.logout()
 }
 
 export async function isAuthenticated(): Promise<boolean> {
-  // GET /store/auth returns the customer when a session cookie is present.
   try {
-    await medusaClient.auth.getSession()
+    await sdk.store.customer.retrieve()
     return true
   } catch {
     return false
@@ -397,54 +487,74 @@ export async function isAuthenticated(): Promise<boolean> {
 }
 
 export async function getCustomer(): Promise<MedusaCustomer> {
-  const { customer } = await medusaClient.customers.retrieve()
-  return customer
+  const { customer } = await sdk.store.customer.retrieve()
+  // v2 customer.retrieve does not embed addresses by default. Fetch them
+  // separately so the dashboard/addresses pages keep working with the
+  // existing `customer.shipping_addresses` shape.
+  let shipping_addresses: MedusaAddress[] = []
+  try {
+    const { addresses } = await sdk.store.customer.listAddress()
+    shipping_addresses = (addresses as any) || []
+  } catch {
+    // Not authenticated or no addresses — leave empty.
+  }
+  return { ...(customer as any), shipping_addresses }
 }
 
 export async function updateCustomer(data: Partial<MedusaCustomer>): Promise<MedusaCustomer> {
-  const { customer } = await medusaClient.customers.update(data)
-  return customer
+  const { customer } = await sdk.store.customer.update(data as any)
+  return customer as any
 }
 
 export async function addCustomerAddress(
   address: Partial<MedusaAddress>
 ): Promise<MedusaCustomer> {
-  const { customer } = await medusaClient.customers.addresses.addAddress({
-    address,
-  })
-  return customer
+  await sdk.store.customer.createAddress(address as any)
+  return getCustomer()
 }
 
 export async function updateCustomerAddress(
   addressId: string,
   address: Partial<MedusaAddress>
 ): Promise<MedusaCustomer> {
-  const { customer } = await medusaClient.customers.addresses.updateAddress(
-    addressId,
-    { address }
-  )
-  return customer
+  await sdk.store.customer.updateAddress(addressId, address as any)
+  return getCustomer()
 }
 
-export async function deleteCustomerAddress(
-  addressId: string
-): Promise<MedusaCustomer> {
-  const { customer } = await medusaClient.customers.addresses.deleteAddress(addressId)
-  return customer
+export async function deleteCustomerAddress(addressId: string): Promise<MedusaCustomer> {
+  await sdk.store.customer.deleteAddress(addressId)
+  return getCustomer()
 }
 
 // ---------------------------------------------------------------------------
 // Custom Endpoints (Pincode, Reviews, Wishlist, Returns)
 // ---------------------------------------------------------------------------
+// The v2 SDK has no typed methods for these custom routes. `sdk.client.fetch`
+// reuses the configured publishable key + session cookie headers automatically
+// (and parses JSON when accept: application/json, which the SDK sets by
+// default). Inputs are relative paths — the SDK prepends the base URL.
+
+async function customFetch<T = any>(
+  path: string,
+  init?: { method?: string; body?: any; query?: Record<string, any> }
+): Promise<T> {
+  return sdk.client.fetch<T>(path, {
+    method: init?.method,
+    body: init?.body,
+    query: init?.query,
+  } as any)
+}
+
 export async function checkPincode(code: string) {
-  return fetchAPI<{ pincode: string; is_serviceable: boolean; estimated_days: number }>(
-    `/store/pincodes/${code}`
+  return customFetch<{ pincode: string; is_serviceable: boolean; estimated_days: number; city?: string; state?: string }>(
+    `store/pincodes/${code}`
   )
 }
 
 export async function getProductReviews(productId: string, page = 1, limit = 10) {
-  return fetchAPI<{ reviews: any[]; total: number; average_rating?: number }>(
-    `/store/reviews/${productId}?page=${page}&limit=${limit}`
+  return customFetch<{ reviews: any[]; total: number; average_rating?: number }>(
+    `store/reviews/${productId}`,
+    { query: { page, limit } }
   )
 }
 
@@ -455,25 +565,22 @@ export async function submitReview(data: {
   body?: string
   images?: string[]
 }) {
-  return fetchAPI("/store/reviews", {
-    method: "POST",
-    body: JSON.stringify(data),
-  })
+  return customFetch("store/reviews", { method: "POST", body: data })
 }
 
 export async function getWishlist() {
-  return fetchAPI<{ items: any[] }>("/store/wishlist")
+  return customFetch<{ items: any[] }>("store/wishlist")
 }
 
 export async function addToWishlist(productId: string, variantId?: string) {
-  return fetchAPI("/store/wishlist", {
+  return customFetch("store/wishlist", {
     method: "POST",
-    body: JSON.stringify({ product_id: productId, variant_id: variantId }),
+    body: { product_id: productId, variant_id: variantId },
   })
 }
 
 export async function removeFromWishlist(id: string) {
-  return fetchAPI(`/store/wishlist/${id}`, { method: "DELETE" })
+  return customFetch(`store/wishlist/${id}`, { method: "DELETE" })
 }
 
 export async function requestReturn(data: {
@@ -481,14 +588,11 @@ export async function requestReturn(data: {
   items: { line_item_id: string; quantity: number; reason: string }[]
   pickup_address?: any
 }) {
-  return fetchAPI("/store/returns", {
-    method: "POST",
-    body: JSON.stringify(data),
-  })
+  return customFetch("store/returns", { method: "POST", body: data })
 }
 
 export async function getReturns() {
-  return fetchAPI<{ returns: any[] }>("/store/returns")
+  return customFetch<{ returns: any[] }>("store/returns")
 }
 
 // ---------------------------------------------------------------------------
@@ -514,20 +618,46 @@ export function formatPriceRupees(amount: number, currency = "INR") {
   }).format(amount)
 }
 
-export function getVariantPrice(variant: MedusaVariant, currency = "INR"): number {
-  const price = variant.prices.find((p) => p.currency_code === currency.toLowerCase())
-  return price ? price.amount / 100 : 0
+// Returns the variant's sell price in RUPEES (paise / 100) for direct use with
+// formatPriceRupees. Reads the v2 calculated_price fields.
+export function getVariantPrice(variant: MedusaVariant, _currency = "INR"): number {
+  const paise =
+    variant.calculated_amount ??
+    variant.calculated_price?.calculated_amount ??
+    0
+  return paise / 100
+}
+
+export function getVariantOriginalPrice(variant: MedusaVariant, _currency = "INR"): number {
+  const paise =
+    variant.original_amount ??
+    variant.calculated_price?.original_amount ??
+    variant.calculated_amount ??
+    variant.calculated_price?.calculated_amount ??
+    0
+  return paise / 100
 }
 
 export function getCheapestVariantPrice(
   variants: MedusaVariant[],
   currency = "INR"
 ): { price: number; originalPrice?: number } {
-  if (!variants.length) return { price: 0 }
-  const prices = variants.map((v) => getVariantPrice(v, currency))
-  const min = Math.min(...prices)
-  const max = Math.max(...prices)
-  return { price: min, originalPrice: min !== max ? max : undefined }
+  if (!variants?.length) return { price: 0 }
+  const priced = variants
+    .map((v) => ({
+      price: getVariantPrice(v, currency),
+      original: getVariantOriginalPrice(v, currency),
+    }))
+    .filter((p) => p.price > 0)
+  if (!priced.length) return { price: 0 }
+  const min = Math.min(...priced.map((p) => p.price))
+  // Original (strikethrough) price: use the largest original across variants
+  // so the discount badge reflects the biggest listed saving.
+  const maxOriginal = Math.max(...priced.map((p) => p.original))
+  return {
+    price: min,
+    originalPrice: maxOriginal > min ? maxOriginal : undefined,
+  }
 }
 
 export function getProductThumbnail(product: MedusaProduct): string {

@@ -70,12 +70,14 @@ const fallbackProducts = [
 ]
 
 // Cheapest variant price in rupees for a Medusa product, or the mock `price`.
+// v2 stores the sell price on variant.calculated_amount (paise) and the list
+// price on variant.original_amount (paise).
 function cheapest(p: any): number {
   if (p.variants?.length) {
     const prices = p.variants.map((v: any) => {
-      const amt = v.prices?.[0]?.amount
+      const amt = v.calculated_amount ?? v.calculated_price?.calculated_amount ?? 0
       return amt ? amt / 100 : 0
-    })
+    }).filter(Boolean)
     return prices.length ? Math.min(...prices) : 0
   }
   return p.price ?? 0
@@ -83,10 +85,11 @@ function cheapest(p: any): number {
 
 function discountPct(p: any): number {
   if (p.variants?.length) {
-    const prices = p.variants.map((v: any) => v.prices?.[0]?.amount ?? 0).filter(Boolean)
-    if (prices.length < 2) return 0
-    const min = Math.min(...prices)
-    const max = Math.max(...prices)
+    const sell = p.variants.map((v: any) => v.calculated_amount ?? v.calculated_price?.calculated_amount ?? 0).filter(Boolean)
+    const orig = p.variants.map((v: any) => v.original_amount ?? v.calculated_price?.original_amount ?? 0).filter(Boolean)
+    if (!sell.length) return 0
+    const min = Math.min(...sell)
+    const max = orig.length ? Math.max(...orig) : (sell.length > 1 ? Math.max(...sell) : 0)
     return max > min ? Math.round((1 - min / max) * 100) : 0
   }
   return p.originalPrice && p.originalPrice > p.price ? Math.round((1 - p.price / p.originalPrice) * 100) : 0
