@@ -1,4 +1,5 @@
 import Link from "next/link"
+import Image from "next/image"
 import { HiOutlineHeart } from "react-icons/hi"
 import { formatPriceRupees, getCheapestVariantPrice, getProductThumbnail } from "@/lib/medusa"
 import type { MedusaProduct } from "@/lib/medusa"
@@ -77,10 +78,12 @@ export default function ProductCard({ product }: { product: MockProduct | Medusa
         {/* Image - Myntra uses aspect-[3/4] with no rounded corners */}
         <div className="aspect-[3/4] bg-[#F5F5F6] relative overflow-hidden">
           {p.image ? (
-            <img
+            <Image
               src={p.image}
               alt={p.title}
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+              fill
+              sizes="(min-width: 1024px) 25vw, (min-width: 768px) 33vw, 50vw"
+              className="object-cover group-hover:scale-105 transition-transform duration-300"
             />
           ) : (
             <div className="absolute inset-0 flex items-center justify-center text-myntra-muted text-xs">

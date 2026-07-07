@@ -67,7 +67,7 @@ export interface MedusaProduct {
   images: { url: string }[]
   variants: MedusaVariant[]
   options: MedusaProductOption[]
-  collection: { id: string; title: string } | null
+  collection: { id: string; title: string; handle?: string } | null
   categories: { id: string; name: string }[]
   tags: { id: string; value: string }[]
   discount?: { percent: number } | null
@@ -443,7 +443,7 @@ export async function checkPincode(code: string) {
 }
 
 export async function getProductReviews(productId: string, page = 1, limit = 10) {
-  return fetchAPI<{ reviews: any[]; total: number }>(
+  return fetchAPI<{ reviews: any[]; total: number; average_rating?: number }>(
     `/store/reviews/${productId}?page=${page}&limit=${limit}`
   )
 }

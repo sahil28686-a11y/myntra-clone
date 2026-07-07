@@ -1,8 +1,10 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { HiOutlineSearch, HiOutlineShoppingBag, HiOutlineUser, HiOutlineHeart, HiOutlineMenu, HiX } from "react-icons/hi"
+import { useCartStore } from "@/lib/store"
 
 const navCategories = [
   { name: "Men", href: "/products?category=men" },
@@ -10,12 +12,30 @@ const navCategories = [
   { name: "Kids", href: "/products?category=kids" },
   { name: "Home & Living", href: "/products?category=home-living" },
   { name: "Beauty", href: "/products?category=beauty" },
-  { name: "Studio", href: "/studio" },
 ]
 
 export default function Header() {
+  const router = useRouter()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [query, setQuery] = useState("")
+  const itemCount = useCartStore((s) => s.itemCount)
+  const refreshCart = useCartStore((s) => s.refreshCart)
+
+  // Re-hydrate the cart on mount so the badge reflects an existing cart
+  // (e.g. after add-to-cart on the PDP creates/persists a cart id).
+  useEffect(() => {
+    refreshCart()
+  }, [refreshCart])
+
+  function handleSearchSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    const q = query.trim()
+    if (!q) return
+    router.push(`/search?q=${encodeURIComponent(q)}`)
+    setSearchOpen(false)
+    setMobileMenuOpen(false)
+  }
 
   return (
     <header className="sticky top-0 z-50 bg-white shadow-sm">
@@ -48,14 +68,16 @@ export default function Header() {
 
         {/* Search Bar */}
         <div className="flex-1 max-w-[400px] mx-8">
-          <div className="relative">
+          <form onSubmit={handleSearchSubmit} className="relative">
             <input
               type="text"
               placeholder="Search for products, brands and more"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
               className="w-full bg-[#f5f5f6] rounded-[0_4px_4px_0] h-[40px] pl-[40px] pr-4 text-[14px] text-[#696e79] focus:outline-none focus:bg-white focus:border focus:border-[#e9e9eb]"
             />
             <HiOutlineSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-[#696e79]" size={18} />
-          </div>
+          </form>
         </div>
 
         {/* User Icons */}
@@ -68,8 +90,15 @@ export default function Header() {
             <HiOutlineHeart size={20} />
             <span className="mt-1">Wishlist</span>
           </Link>
-          <Link href="/cart" className="flex flex-col items-center text-[12px] font-semibold text-[#282c3f]">
-            <HiOutlineShoppingBag size={20} />
+          <Link href="/cart" className="flex flex-col items-center text-[12px] font-semibold text-[#282c3f] relative">
+            <span className="relative">
+              <HiOutlineShoppingBag size={20} />
+              {itemCount > 0 && (
+                <span className="absolute -top-1.5 -right-2 bg-[#FF3F6C] text-white text-[10px] font-bold leading-none rounded-full min-w-[16px] h-[16px] px-[4px] flex items-center justify-center">
+                  {itemCount}
+                </span>
+              )}
+            </span>
             <span className="mt-1">Bag</span>
           </Link>
         </div>
@@ -87,8 +116,13 @@ export default function Header() {
           <button onClick={() => setSearchOpen(!searchOpen)} aria-label="Search">
             <HiOutlineSearch size={22} />
           </button>
-          <Link href="/cart" aria-label="Cart">
+          <Link href="/cart" aria-label="Cart" className="relative">
             <HiOutlineShoppingBag size={22} />
+            {itemCount > 0 && (
+              <span className="absolute -top-1.5 -right-2 bg-[#FF3F6C] text-white text-[10px] font-bold leading-none rounded-full min-w-[16px] h-[16px] px-[4px] flex items-center justify-center">
+                {itemCount}
+              </span>
+            )}
           </Link>
         </div>
       </div>
@@ -96,15 +130,17 @@ export default function Header() {
       {/* Mobile Search */}
       {searchOpen && (
         <div className="md:hidden px-4 pb-3">
-          <div className="relative">
+          <form onSubmit={handleSearchSubmit} className="relative">
             <input
               type="text"
               placeholder="Search for products, brands and more"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
               className="w-full bg-[#f5f5f6] rounded-[4px] h-[40px] pl-[40px] pr-4 text-[14px] focus:outline-none"
               autoFocus
             />
             <HiOutlineSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-[#696e79]" size={18} />
-          </div>
+          </form>
         </div>
       )}
 

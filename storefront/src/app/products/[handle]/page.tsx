@@ -2,22 +2,32 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
+import Image from "next/image"
 import { HiOutlineHeart, HiOutlineShare, HiOutlineShoppingBag } from "react-icons/hi"
+import toast from "react-hot-toast"
 import {
-  formatPrice,
+  formatPriceRupees,
   checkPincode,
   getProduct,
   getProductThumbnail,
   getProductImages,
   getVariantPrice,
+  getProductReviews,
+  addToWishlist,
   addToCart,
   createCart,
-  getCart,
 } from "@/lib/medusa"
+import { useCartStore, useAuthStore } from "@/lib/store"
 import type { MedusaProduct, MedusaVariant } from "@/lib/medusa"
 
 interface ProductDetailPageProps {
   params: { handle: string }
+}
+
+interface ReviewState {
+  reviews: any[]
+  total: number
+  average_rating?: number
 }
 
 export default function ProductDetailPage({ params }: ProductDetailPageProps) {
@@ -33,6 +43,13 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
   const [selectedImage, setSelectedImage] = useState(0)
   const [addingToCart, setAddingToCart] = useState(false)
   const [addedToCart, setAddedToCart] = useState(false)
+  const [wishlistLoading, setWishlistLoading] = useState(false)
+
+  const [reviews, setReviews] = useState<ReviewState | null>(null)
+
+  const cartId = useCartStore((s) => s.cartId)
+  const setCart = useCartStore((s) => s.setCart)
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
 
   // Fetch product on mount
   useEffect(() => {
@@ -50,6 +67,25 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
     }
     load()
   }, [params.handle])
+
+  // Fetch reviews once the product is available
+  useEffect(() => {
+    if (!product) return
+    let cancelled = false
+    async function loadReviews() {
+      try {
+        const result = await getProductReviews(product!.id)
+        if (!cancelled) setReviews(result)
+      } catch {
+        // Graceful fallback — leave reviews null so we show "No reviews yet".
+        if (!cancelled) setReviews(null)
+      }
+    }
+    loadReviews()
+    return () => {
+      cancelled = true
+    }
+  }, [product])
 
   // Update selected variant when size changes
   useEffect(() => {
@@ -73,8 +109,8 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
 
   if (error || !product) {
     return (
-      <div className="min-h-[700px] mt-[80px] flex items-center justify-center">
-        <p className="text-red-500 mb-4">{error || "Product not found"}</p>
+      <div className="min-h-[700px] mt-[80px] flex flex-col items-center justify-center gap-4">
+        <p className="text-red-500">{error || "Product not found"}</p>
         <Link href="/products" className="text-[#FF3F6C] font-bold text-sm uppercase tracking-[0.15em]">Browse Products</Link>
       </div>
     )
@@ -89,6 +125,21 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
   const discount = maxPrice > currentPrice ? Math.round((1 - currentPrice / maxPrice) * 100) : 0
   const images = getProductImages(product)
   const thumbnail = getProductThumbnail(product)
+
+  // Compute average rating: prefer the API's average_rating, else derive from
+  // the returned reviews when available.
+  const avgRating =
+    reviews?.average_rating ??
+    (reviews && reviews.reviews.length > 0
+      ? reviews.reviews.reduce((sum, r) => sum + (r.rating || 0), 0) / reviews.reviews.length
+      : null)
+  const reviewCount = reviews?.total ?? 0
+
+  // Collection link — only link if a handle exists; otherwise fall back to the
+  // products listing so we never emit a broken /collections route.
+  const collectionHref = product.collection?.handle
+    ? `/collections/${product.collection.handle}`
+    : "/products"
 
   // Extract unique sizes from variants
   const sizeOption = product.options.find((o) => o.title.toLowerCase() === "size")
@@ -110,19 +161,44 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
     if (!selectedVariant) return
     setAddingToCart(true)
     try {
-      let cartId = localStorage.getItem("cart_id")
-      if (!cartId) {
+      // Prefer the zustand store's cart id; fall back to the legacy
+      // localStorage "cart_id" key used by the cart/checkout pages so an
+      // existing cart is reused instead of creating a duplicate.
+      let cid = cartId || localStorage.getItem("cart_id")
+      if (!cid) {
         const cart = await createCart()
-        cartId = cart.id
-        localStorage.setItem("cart_id", cartId)
+        cid = cart.id
+        setCart(cart)
       }
-      await addToCart(cartId, selectedVariant.id, 1)
+      const updated = await addToCart(cid, selectedVariant.id, 1)
+      setCart(updated)
+      // Mirror the cart id to the legacy key used by the cart/checkout pages
+      // (M3a wired those to localStorage "cart_id"). Keeps both in sync until
+      // those pages are migrated onto the zustand store.
+      localStorage.setItem("cart_id", cid)
       setAddedToCart(true)
       setTimeout(() => setAddedToCart(false), 3000)
     } catch (err) {
       console.error("Failed to add to cart:", err)
+      toast.error("Could not add to bag. Please try again.")
     }
     setAddingToCart(false)
+  }
+
+  const handleWishlist = async () => {
+    if (!isAuthenticated) {
+      toast("Please log in to save to wishlist")
+      return
+    }
+    setWishlistLoading(true)
+    try {
+      await addToWishlist(product.id, selectedVariant?.id)
+      toast.success("Added to wishlist")
+    } catch (err) {
+      console.error("Failed to add to wishlist:", err)
+      toast.error("Could not add to wishlist. Please try again.")
+    }
+    setWishlistLoading(false)
   }
 
   return (
@@ -147,11 +223,17 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
                   <button
                     key={i}
                     onClick={() => setSelectedImage(i)}
-                    className={`w-[60px] h-[80px] border-2 overflow-hidden flex-shrink-0 transition-all ${
+                    className={`relative w-[60px] h-[80px] border-2 overflow-hidden flex-shrink-0 transition-all ${
                       selectedImage === i ? "border-[#FF3F6C] opacity-100" : "border-[#E9E9EB] opacity-70 hover:opacity-100"
                     }`}
                   >
-                    <img src={img} alt="" className="w-full h-full object-cover" />
+                    <Image
+                      src={img}
+                      alt=""
+                      fill
+                      sizes="60px"
+                      className="object-cover"
+                    />
                   </button>
                 ))
               ) : (
@@ -161,18 +243,24 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
               )}
             </div>
             {/* Main Image */}
-            <div className="flex-1 bg-[#F5F5F6] flex items-center justify-center overflow-hidden group relative">
+            <div className="flex-1 bg-[#F5F5F6] flex items-center justify-center overflow-hidden group relative aspect-[3/4]">
               {images[selectedImage] ? (
-                <img
+                <Image
                   src={images[selectedImage]}
                   alt={product.title}
-                  className="w-full h-auto object-contain transition-transform duration-300 group-hover:scale-110 cursor-crosshair"
+                  fill
+                  sizes="(min-width: 1024px) 55vw, 100vw"
+                  priority
+                  className="object-contain transition-transform duration-300 group-hover:scale-110 cursor-crosshair"
                 />
               ) : thumbnail ? (
-                <img
+                <Image
                   src={thumbnail}
                   alt={product.title}
-                  className="w-full h-auto object-contain"
+                  fill
+                  sizes="(min-width: 1024px) 55vw, 100vw"
+                  priority
+                  className="object-contain"
                 />
               ) : (
                 <span className="text-[#94969F] text-sm">Product Image</span>
@@ -182,9 +270,9 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
 
           {/* ===== RIGHT: Product Info ===== */}
           <div className="lg:w-[45%]">
-            {/* Brand */}
+            {/* Brand / Collection */}
             {product.collection && (
-              <Link href={`/collections/${""}`} className="text-[#FF3F6C] text-[14px] font-bold uppercase tracking-[0.05em] hover:underline">
+              <Link href={collectionHref} className="text-[#FF3F6C] text-[14px] font-bold uppercase tracking-[0.05em] hover:underline">
                 {product.collection.title}
               </Link>
             )}
@@ -196,22 +284,30 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
 
             {/* Rating */}
             <div className="flex items-center gap-[8px] mt-[10px]">
-              <span className="bg-[#03A685] text-white text-[11px] font-bold px-[6px] py-[2px] rounded-[3px] flex items-center gap-[3px]">
-                4.2 ★
-              </span>
-              <span className="text-[#282C3F] text-[13px] font-semibold">4.2k Ratings</span>
+              {avgRating !== null ? (
+                <>
+                  <span className="bg-[#03A685] text-white text-[11px] font-bold px-[6px] py-[2px] rounded-[3px] flex items-center gap-[3px]">
+                    {avgRating.toFixed(1)} ★
+                  </span>
+                  <span className="text-[#282C3F] text-[13px] font-semibold">
+                    {reviewCount} {reviewCount === 1 ? "Rating" : "Ratings"}
+                  </span>
+                </>
+              ) : (
+                <span className="text-[#94969F] text-[13px]">No ratings yet</span>
+              )}
             </div>
 
             {/* Price */}
             <div className="mt-[15px]">
               <div className="flex items-baseline gap-[10px]">
                 <span className="text-[#282C3F] text-[20px] font-bold">
-                  ₹{currentPrice.toLocaleString("en-IN")}
+                  {formatPriceRupees(currentPrice)}
                 </span>
                 {maxPrice > currentPrice && (
                   <>
                     <span className="text-[#7E818C] text-[16px] line-through">
-                      ₹{maxPrice.toLocaleString("en-IN")}
+                      {formatPriceRupees(maxPrice)}
                     </span>
                     <span className="text-[#FF3F6C] text-[14px] font-bold">
                       ({discount}% OFF)
@@ -300,7 +396,12 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
                 <HiOutlineShoppingBag size={20} />
                 {addingToCart ? "Adding..." : addedToCart ? "Added ✓" : "Add to Bag"}
               </button>
-              <button className="w-[52px] h-[52px] border border-[#D4D5D9] flex items-center justify-center hover:border-[#282C3F] transition-colors" aria-label="Add to wishlist">
+              <button
+                onClick={handleWishlist}
+                disabled={wishlistLoading}
+                className="w-[52px] h-[52px] border border-[#D4D5D9] flex items-center justify-center hover:border-[#282C3F] transition-colors disabled:opacity-50"
+                aria-label="Add to wishlist"
+              >
                 <HiOutlineHeart size={20} className="text-[#282C3F]" />
               </button>
               <button className="w-[52px] h-[52px] border border-[#D4D5D9] flex items-center justify-center hover:border-[#282C3F] transition-colors" aria-label="Share">
@@ -334,30 +435,67 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
           </div>
         )}
 
-        {/* ===== Ratings Section ===== */}
+        {/* ===== Ratings & Reviews Section ===== */}
         <div className="mt-[40px] border-t border-[#E9E9EB] pt-[25px] mb-[50px]">
           <h2 className="text-[#282C3F] text-[16px] font-bold uppercase tracking-[0.1em] mb-[15px]">
             Ratings & Reviews
           </h2>
-          <div className="flex items-center gap-[15px]">
-            <div className="text-center">
-              <div className="text-[#282C3F] text-[36px] font-bold">4.2</div>
-              <div className="text-[#03A685] text-[14px]">★★★★★</div>
-            </div>
-            <div className="flex-1">
-              {[5, 4, 3, 2, 1].map((star) => (
-                <div key={star} className="flex items-center gap-[8px] text-[12px] text-[#535766]">
-                  <span>{star}</span>
-                  <div className="flex-1 h-[4px] bg-[#E9E9EB] rounded-full">
-                    <div
-                      className="h-full bg-[#03A685] rounded-full"
-                      style={{ width: `${star === 5 ? 60 : star === 4 ? 25 : star === 3 ? 10 : 5}%` }}
-                    />
+          {avgRating !== null ? (
+            <>
+              <div className="flex items-center gap-[15px]">
+                <div className="text-center">
+                  <div className="text-[#282C3F] text-[36px] font-bold">
+                    {avgRating.toFixed(1)}
                   </div>
+                  <div className="text-[#03A685] text-[14px]">★★★★★</div>
                 </div>
-              ))}
-            </div>
-          </div>
+                <div className="flex-1">
+                  {[5, 4, 3, 2, 1].map((star) => {
+                    const count = reviews?.reviews
+                      ? reviews.reviews.filter((r) => r.rating === star).length
+                      : 0
+                    const pct = reviews?.reviews && reviews.reviews.length > 0
+                      ? Math.round((count / reviews.reviews.length) * 100)
+                      : 0
+                    return (
+                      <div key={star} className="flex items-center gap-[8px] text-[12px] text-[#535766]">
+                        <span>{star}</span>
+                        <div className="flex-1 h-[4px] bg-[#E9E9EB] rounded-full">
+                          <div
+                            className="h-full bg-[#03A685] rounded-full"
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* A few reviews */}
+              {reviews?.reviews && reviews.reviews.length > 0 && (
+                <div className="mt-[25px] space-y-[20px]">
+                  {reviews.reviews.slice(0, 3).map((r: any) => (
+                    <div key={r.id ?? r.title} className="border-b border-[#E9E9EB] pb-[15px]">
+                      <div className="flex items-center gap-[8px] mb-[6px]">
+                        <span className="bg-[#03A685] text-white text-[11px] font-bold px-[6px] py-[2px] rounded-[3px]">
+                          {r.rating} ★
+                        </span>
+                        {r.title && (
+                          <span className="text-[#282C3F] text-[14px] font-semibold">{r.title}</span>
+                        )}
+                      </div>
+                      {r.body && (
+                        <p className="text-[#535766] text-[14px] leading-relaxed">{r.body}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="text-[#94969F] text-[14px]">No reviews yet</p>
+          )}
         </div>
       </div>
     </div>

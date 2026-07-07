@@ -1,4 +1,5 @@
 import type { Metadata } from "next"
+import { Toaster } from "react-hot-toast"
 import "../styles/globals.css"
 import Header from "@/components/layout/Header"
 import Footer from "@/components/layout/Footer"
@@ -19,6 +20,7 @@ export default function RootLayout({
         <Header />
         <main className="min-h-screen">{children}</main>
         <Footer />
+        <Toaster position="top-center" toastOptions={{ duration: 2500 }} />
       </body>
     </html>
   )

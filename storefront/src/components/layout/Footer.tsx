@@ -21,7 +21,6 @@ const footerSections: FooterSection[] = [
       { name: "Home & Living", href: "/products?category=home-living" },
       { name: "Beauty", href: "/products?category=beauty" },
       { name: "Gift Cards", href: "/gift-cards" },
-      { name: "Myntra Insider", href: "/insider" },
     ],
   },
   {
