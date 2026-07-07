@@ -36,32 +36,6 @@ import type { MedusaContainer } from "@medusajs/medusa"
  * authService.updateAuthIdentities({ app_metadata: { user_id } }).
  */
 
-/**
- * M1 unified seed script for the Myntra clone (Medusa v2).
- *
- * Run with: `npm run seed` (-> `medusa exec src/scripts/seed.ts`)
- *
- * The `medusa exec` command (see @medusajs/medusa dist/commands/exec.js) loads
- * the full application container and invokes the default export with
- * `{ container, args }`. We resolve the v2 module services via their container
- * registration keys (verified from @medusajs/utils modules-sdk/definition.d.ts
- * `Modules` enum: PRODUCT = "product", REGION = "region", PRICING = "pricing")
- * and the remote link via ContainerRegistrationKeys.LINK = "link".
- *
- * CRITICAL: Medusa v2 stores money values in the smallest currency unit. For
- * INR that is paise, so ₹1,299 is stored as `amount: 129900`.
- *
- * Note: product categories are managed by the product module itself
- * (`createProductCategories`) — there is no standalone "productCategory"
- * module registration key in the v2 `Modules` enum.
- *
- * Note on payments: a v2 "manual"/COD payment provider package is not installed
- * (only @medusajs/payment + @medusajs/payment-stripe are present). COD/manual
- * payment provider wiring is M2/M4 scope (plan Risk R7). The default modules
- * already register the manual fulfillment provider and the stripe payment
- * provider.
- */
-
 type Resolver = (name: string) => any
 
 interface SeedParams {
@@ -144,7 +118,8 @@ export default async function seed({ container }: SeedParams) {
   interface VariantSeed {
     title: string
     sku: string
-    options: { value: string }[]
+    // Record<option title, option value> — matches CreateProductVariantDTO.options
+    options: Record<string, string>
     price: number // paise
   }
 
@@ -178,14 +153,14 @@ export default async function seed({ container }: SeedParams) {
         { title: "Color", values: ["Navy Blue", "White"] },
       ],
       variants: [
-        { title: "S / Navy Blue", sku: "POLO-S-NV", options: [{ value: "S" }, { value: "Navy Blue" }], price: 129900 },
-        { title: "M / Navy Blue", sku: "POLO-M-NV", options: [{ value: "M" }, { value: "Navy Blue" }], price: 129900 },
-        { title: "L / Navy Blue", sku: "POLO-L-NV", options: [{ value: "L" }, { value: "Navy Blue" }], price: 129900 },
-        { title: "XL / Navy Blue", sku: "POLO-XL-NV", options: [{ value: "XL" }, { value: "Navy Blue" }], price: 129900 },
-        { title: "S / White", sku: "POLO-S-WH", options: [{ value: "S" }, { value: "White" }], price: 129900 },
-        { title: "M / White", sku: "POLO-M-WH", options: [{ value: "M" }, { value: "White" }], price: 129900 },
-        { title: "L / White", sku: "POLO-L-WH", options: [{ value: "L" }, { value: "White" }], price: 129900 },
-        { title: "XL / White", sku: "POLO-XL-WH", options: [{ value: "XL" }, { value: "White" }], price: 129900 },
+        { title: "S / Navy Blue", sku: "POLO-S-NV", options: { Size: "S", Color: "Navy Blue" }, price: 129900 },
+        { title: "M / Navy Blue", sku: "POLO-M-NV", options: { Size: "M", Color: "Navy Blue" }, price: 129900 },
+        { title: "L / Navy Blue", sku: "POLO-L-NV", options: { Size: "L", Color: "Navy Blue" }, price: 129900 },
+        { title: "XL / Navy Blue", sku: "POLO-XL-NV", options: { Size: "XL", Color: "Navy Blue" }, price: 129900 },
+        { title: "S / White", sku: "POLO-S-WH", options: { Size: "S", Color: "White" }, price: 129900 },
+        { title: "M / White", sku: "POLO-M-WH", options: { Size: "M", Color: "White" }, price: 129900 },
+        { title: "L / White", sku: "POLO-L-WH", options: { Size: "L", Color: "White" }, price: 129900 },
+        { title: "XL / White", sku: "POLO-XL-WH", options: { Size: "XL", Color: "White" }, price: 129900 },
       ],
     },
     {
@@ -205,13 +180,13 @@ export default async function seed({ container }: SeedParams) {
         { title: "Color", values: ["Dark Blue", "Black"] },
       ],
       variants: [
-        { title: "28 / Dark Blue", sku: "JEANS-28-DB", options: [{ value: "28" }, { value: "Dark Blue" }], price: 199900 },
-        { title: "30 / Dark Blue", sku: "JEANS-30-DB", options: [{ value: "30" }, { value: "Dark Blue" }], price: 199900 },
-        { title: "32 / Dark Blue", sku: "JEANS-32-DB", options: [{ value: "32" }, { value: "Dark Blue" }], price: 199900 },
-        { title: "34 / Dark Blue", sku: "JEANS-34-DB", options: [{ value: "34" }, { value: "Dark Blue" }], price: 199900 },
-        { title: "30 / Black", sku: "JEANS-30-BK", options: [{ value: "30" }, { value: "Black" }], price: 199900 },
-        { title: "32 / Black", sku: "JEANS-32-BK", options: [{ value: "32" }, { value: "Black" }], price: 199900 },
-        { title: "34 / Black", sku: "JEANS-34-BK", options: [{ value: "34" }, { value: "Black" }], price: 199900 },
+        { title: "28 / Dark Blue", sku: "JEANS-28-DB", options: { Size: "28", Color: "Dark Blue" }, price: 199900 },
+        { title: "30 / Dark Blue", sku: "JEANS-30-DB", options: { Size: "30", Color: "Dark Blue" }, price: 199900 },
+        { title: "32 / Dark Blue", sku: "JEANS-32-DB", options: { Size: "32", Color: "Dark Blue" }, price: 199900 },
+        { title: "34 / Dark Blue", sku: "JEANS-34-DB", options: { Size: "34", Color: "Dark Blue" }, price: 199900 },
+        { title: "30 / Black", sku: "JEANS-30-BK", options: { Size: "30", Color: "Black" }, price: 199900 },
+        { title: "32 / Black", sku: "JEANS-32-BK", options: { Size: "32", Color: "Black" }, price: 199900 },
+        { title: "34 / Black", sku: "JEANS-34-BK", options: { Size: "34", Color: "Black" }, price: 199900 },
       ],
     },
     {
@@ -231,12 +206,12 @@ export default async function seed({ container }: SeedParams) {
         { title: "Color", values: ["Pink", "Mint Green"] },
       ],
       variants: [
-        { title: "S / Pink", sku: "KURTA-S-PK", options: [{ value: "S" }, { value: "Pink" }], price: 249900 },
-        { title: "M / Pink", sku: "KURTA-M-PK", options: [{ value: "M" }, { value: "Pink" }], price: 249900 },
-        { title: "L / Pink", sku: "KURTA-L-PK", options: [{ value: "L" }, { value: "Pink" }], price: 249900 },
-        { title: "S / Mint Green", sku: "KURTA-S-MG", options: [{ value: "S" }, { value: "Mint Green" }], price: 249900 },
-        { title: "M / Mint Green", sku: "KURTA-M-MG", options: [{ value: "M" }, { value: "Mint Green" }], price: 249900 },
-        { title: "L / Mint Green", sku: "KURTA-L-MG", options: [{ value: "L" }, { value: "Mint Green" }], price: 249900 },
+        { title: "S / Pink", sku: "KURTA-S-PK", options: { Size: "S", Color: "Pink" }, price: 249900 },
+        { title: "M / Pink", sku: "KURTA-M-PK", options: { Size: "M", Color: "Pink" }, price: 249900 },
+        { title: "L / Pink", sku: "KURTA-L-PK", options: { Size: "L", Color: "Pink" }, price: 249900 },
+        { title: "S / Mint Green", sku: "KURTA-S-MG", options: { Size: "S", Color: "Mint Green" }, price: 249900 },
+        { title: "M / Mint Green", sku: "KURTA-M-MG", options: { Size: "M", Color: "Mint Green" }, price: 249900 },
+        { title: "L / Mint Green", sku: "KURTA-L-MG", options: { Size: "L", Color: "Mint Green" }, price: 249900 },
       ],
     },
     {
@@ -253,11 +228,11 @@ export default async function seed({ container }: SeedParams) {
       ],
       options: [{ title: "Size", values: ["7", "8", "9", "10", "11"] }],
       variants: [
-        { title: "7", sku: "SHOE-7", options: [{ value: "7" }], price: 399900 },
-        { title: "8", sku: "SHOE-8", options: [{ value: "8" }], price: 399900 },
-        { title: "9", sku: "SHOE-9", options: [{ value: "9" }], price: 399900 },
-        { title: "10", sku: "SHOE-10", options: [{ value: "10" }], price: 399900 },
-        { title: "11", sku: "SHOE-11", options: [{ value: "11" }], price: 399900 },
+        { title: "7", sku: "SHOE-7", options: { Size: "7" }, price: 399900 },
+        { title: "8", sku: "SHOE-8", options: { Size: "8" }, price: 399900 },
+        { title: "9", sku: "SHOE-9", options: { Size: "9" }, price: 399900 },
+        { title: "10", sku: "SHOE-10", options: { Size: "10" }, price: 399900 },
+        { title: "11", sku: "SHOE-11", options: { Size: "11" }, price: 399900 },
       ],
     },
     {
@@ -277,9 +252,9 @@ export default async function seed({ container }: SeedParams) {
         { title: "Color", values: ["Blue"] },
       ],
       variants: [
-        { title: "S / Blue", sku: "DRESS-S-BL", options: [{ value: "S" }, { value: "Blue" }], price: 179900 },
-        { title: "M / Blue", sku: "DRESS-M-BL", options: [{ value: "M" }, { value: "Blue" }], price: 179900 },
-        { title: "L / Blue", sku: "DRESS-L-BL", options: [{ value: "L" }, { value: "Blue" }], price: 179900 },
+        { title: "S / Blue", sku: "DRESS-S-BL", options: { Size: "S", Color: "Blue" }, price: 179900 },
+        { title: "M / Blue", sku: "DRESS-M-BL", options: { Size: "M", Color: "Blue" }, price: 179900 },
+        { title: "L / Blue", sku: "DRESS-L-BL", options: { Size: "L", Color: "Blue" }, price: 179900 },
       ],
     },
   ]
@@ -296,13 +271,13 @@ export default async function seed({ container }: SeedParams) {
     }
 
     const category = categoryId(p.categoryHandle)
-    const createdProducts = (await productModule.createProducts({
+    const created = (await productModule.createProducts({
       title: p.title,
       handle: p.handle,
       description: p.description,
       status: p.status,
       thumbnail: p.thumbnail,
-      images: p.images,
+      images: p.images.map((u) => ({ url: u })),
       categories: category ? [category] : [],
       options: p.options.map((o) => ({ title: o.title, values: o.values })),
       variants: p.variants.map((v) => ({
@@ -311,9 +286,7 @@ export default async function seed({ container }: SeedParams) {
         options: v.options,
         manage_inventory: false,
       })),
-    })) as any[]
-
-    const created = createdProducts[0]
+    })) as any
     console.log(`✓ Product created: ${p.title} (${created.id})`)
 
     // ----- 4. Prices (paise) via the pricing module + link to variants -----
@@ -331,7 +304,7 @@ export default async function seed({ container }: SeedParams) {
       })) as any
 
       await remoteLink.create({
-        [Modules.PRODUCT]: { product_variant_id: variant.id },
+        [Modules.PRODUCT]: { variant_id: variant.id },
         [Modules.PRICING]: { price_set_id: priceSet.id },
       })
     }

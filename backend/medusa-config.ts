@@ -28,8 +28,12 @@ module.exports = defineConfig({
   modules: [
     // Custom v2 modules. Array form is the recommended v2 config shape
     // (@medusajs/types InputConfigWithArrayModules). Each entry resolves the
-    // module's index.ts which exports `Module("key", { service })`; the key
-    // is the container registration name used by `container.resolve(key)`.
+    // module's index.ts which exports `Module("name", { service })`; the
+    // registration name used by `container.resolve(name)` comes from the
+    // `Module()` definition's first argument, NOT from the `key` field below.
+    // `key` is only consumed for `scope: "external"` or `disable`-d modules
+    // (see @medusajs/utils common/define-config.js transformModules). It is
+    // retained here for explicitness but is redundant for these local modules.
     { resolve: "./src/modules/pincode", key: "pincode" },
     { resolve: "./src/modules/review", key: "review" },
     { resolve: "./src/modules/wishlist", key: "wishlist" },
