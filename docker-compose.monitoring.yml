@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   # ===========================================================================
   # Health Check Endpoint (lightweight HTTP server for external monitoring)
@@ -85,9 +83,9 @@ services:
           sleep 300;
         done
       "
-    depends_on:
-      - storefront
-      - medusa
+    # depends_on omitted — this file runs alongside docker-compose.prod.yml
+    # which provides the storefront and medusa services on the external
+    # myntra_network. The uptime-monitor pings them by service name.
     deploy:
       resources:
         limits:

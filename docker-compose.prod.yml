@@ -1,4 +1,10 @@
-version: "3.8"
+# =============================================================================
+# Myntra Clone — Production Compose (Medusa v2)
+# =============================================================================
+# Usage: see docs/deployment-guide.md
+# Migrations run via deploy.sh (medusa db:migrate), NOT in the Dockerfile.
+# Payments are COD-only for this pass (per §6.1) — no Razorpay keys.
+# =============================================================================
 
 services:
   postgres:
@@ -70,12 +76,11 @@ services:
       REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET}
       COOKIE_SECRET: ${COOKIE_SECRET}
-      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID}
-      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET}
-      SENDGRID_API_KEY: ${SENDGRID_API_KEY}
-      SENDGRID_FROM_EMAIL: ${SENDGRID_FROM_EMAIL:-noreply@myntra-clone.com}
-      STORE_CORS: ${STORE_CORS:-https://myntra-clone.com}
-      ADMIN_CORS: ${ADMIN_CORS:-https://admin.myntra-clone.com}
+      # v2 CORS — AUTH_CORS is required by the v2 framework (medusa-config.ts)
+      STORE_CORS: ${STORE_CORS:-https://myntra-clone.local}
+      ADMIN_CORS: ${ADMIN_CORS:-https://admin.myntra-clone.local}
+      AUTH_CORS: ${AUTH_CORS:-https://admin.myntra-clone.local}
+      # Payments: COD-only for this pass (§6.1). Razorpay keys are NOT set.
       PORT: "9000"
     volumes:
       - medusa_uploads:/app/uploads
@@ -84,6 +89,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    # v2 health endpoint: GET /health → 200 "OK"
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9000/health"]
       interval: 30s
@@ -114,7 +120,7 @@ services:
       - "3000"
     environment:
       NODE_ENV: production
-      NEXT_PUBLIC_MEDUSA_URL: ${NEXT_PUBLIC_MEDUSA_URL:-https://api.myntra-clone.com}
+      NEXT_PUBLIC_MEDUSA_URL: ${NEXT_PUBLIC_MEDUSA_URL:-https://api.myntra-clone.local}
       MEDUSA_URL: http://medusa:9000
       PORT: "3000"
     depends_on:

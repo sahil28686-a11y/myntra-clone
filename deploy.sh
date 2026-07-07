@@ -101,8 +101,8 @@ preflight() {
   source "$ENV_FILE"
   set +a
 
-  # Check required vars
-  local required_vars=("JWT_SECRET" "COOKIE_SECRET" "RAZORPAY_KEY_ID" "RAZORPAY_KEY_SECRET")
+  # Check required vars (COD-only pass: Razorpay keys NOT required per §6.1)
+  local required_vars=("JWT_SECRET" "COOKIE_SECRET")
   local missing=false
   for var in "${required_vars[@]}"; do
     if [ -z "${!var:-}" ] || [[ "${!var}" == CHANGE_ME* ]]; then
@@ -179,9 +179,10 @@ run_migrations() {
     exit 1
   }
 
-  # Run migrations via medusa container
-  log "INFO" "Running Medusa migrations..."
-  docker compose -f "$COMPOSE_FILE" run --rm medusa sh -c "npx medusa migrations run" 2>&1 | tee -a "$LOG_FILE"
+  # Run migrations via medusa container — v2 command: medusa db:migrate
+  # (NOT v1 "medusa migrations run")
+  log "INFO" "Running Medusa migrations (v2: medusa db:migrate)..."
+  docker compose -f "$COMPOSE_FILE" run --rm medusa sh -c "npx medusa db:migrate" 2>&1 | tee -a "$LOG_FILE"
 
   log "OK" "Database migrations completed."
 }
@@ -193,24 +194,16 @@ seed_data() {
     return
   fi
 
-  log "INFO" "Seeding data..."
+  log "INFO" "Seeding data (v2 unified seed script)..."
 
-  # Check if data already exists (skip if already seeded)
-  local product_count
-  product_count=$(docker compose -f "$COMPOSE_FILE" run --rm medusa sh -c "npx medusa exec -c 'const { Product } = require(\"@medusajs/medusa\"); const productRepo = Product.getRepository(); return productRepo.count()'" 2>/dev/null || echo "0")
-
-  if [ "$product_count" -gt 0 ] 2>/dev/null; then
-    log "INFO" "Data already seeded (${product_count} products found). Skipping seed."
-    return
-  fi
-
-  # Run seed scripts
-  for seed_script in seed-categories seed-products seed-pincodes seed-taxes seed-payment; do
-    log "INFO" "Running seed script: ${seed_script}..."
-    docker compose -f "$COMPOSE_FILE" run --rm medusa sh -c "npx medusa exec src/scripts/${seed_script}.ts" 2>&1 | tee -a "$LOG_FILE" || {
-      log "WARN" "Seed script ${seed_script} failed (may already be seeded). Continuing..."
-    }
-  done
+  # Run the unified v2 seed script: src/scripts/seed.ts
+  # This seeds region, categories, products (paise prices), pincodes, GST tax
+  # rates, payment provider (COD), AND the default admin user
+  # (admin@myntra-clone.com / admin123). See docs/deployment-guide.md.
+  log "INFO" "Running: medusa exec src/scripts/seed.ts"
+  docker compose -f "$COMPOSE_FILE" run --rm medusa sh -c "npx medusa exec src/scripts/seed.ts" 2>&1 | tee -a "$LOG_FILE" || {
+    log "WARN" "Seed script failed (data may already be seeded). Continuing..."
+  }
 
   log "OK" "Data seeding completed."
 }
@@ -231,10 +224,10 @@ setup_ssl() {
   fi
 
   # Get domain from .env
-  local domain="${DOMAIN:-myntra-clone.com}"
-  local admin_domain="${ADMIN_DOMAIN:-admin.myntra-clone.com}"
-  local api_domain="${API_DOMAIN:-api.myntra-clone.com}"
-  local uploads_domain="${UPLOADS_DOMAIN:-uploads.myntra-clone.com}"
+  local domain="${DOMAIN:-myntra-clone.local}"
+  local admin_domain="${ADMIN_DOMAIN:-admin.myntra-clone.local}"
+  local api_domain="${API_DOMAIN:-api.myntra-clone.local}"
+  local uploads_domain="${UPLOADS_DOMAIN:-uploads.myntra-clone.local}"
 
   # Obtain certificates
   log "INFO" "Obtaining SSL certificate for ${domain}..."
@@ -332,11 +325,14 @@ rollback() {
 post_deploy() {
   log "INFO" "Running post-deployment tasks..."
 
-  # Create admin user if not exists
-  log "INFO" "Ensuring admin user exists..."
-  docker compose -f "$COMPOSE_FILE" exec -T medusa sh -c "
-    npx medusa user -e \"\${ADMIN_EMAIL:-admin@myntra-clone.com}\" -p \"\${ADMIN_PASSWORD:-admin123}\" 2>/dev/null || true
-  " 2>&1 | tee -a "$LOG_FILE"
+  # NOTE: The default admin user (admin@myntra-clone.com / admin123) is created
+  # by the seed script (src/scripts/seed.ts). We do NOT create it again here to
+  # avoid duplicates. If you need a different admin, run manually after deploy:
+  #   docker compose -f docker-compose.prod.yml exec medusa \
+  #     npx medusa user -e <email> -p <password>
+  #
+  # IMPORTANT: Change the default admin password (admin123) immediately after
+  # first boot — see docs/deployment-guide.md.
 
   # Clean up old images
   log "INFO" "Cleaning up old Docker images..."
@@ -354,7 +350,7 @@ print_summary() {
   echo "============================================"
   echo ""
   echo -e "  Storefront:  ${BLUE}https://${domain}${NC}"
-  echo -e "  Admin Panel: ${BLUE}https://admin.${domain}${NC}"
+  echo -e "  Admin Panel: ${BLUE}https://admin.${domain}/app${NC}"
   echo -e "  API:         ${BLUE}https://api.${domain}${NC}"
   echo ""
   echo -e "  Deploy log:  ${YELLOW}${LOG_FILE}${NC}"
