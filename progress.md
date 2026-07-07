@@ -11,8 +11,8 @@
 |-------|--------|------------|
 | Phase 1: Foundation | ✅ Complete | 100% |
 | Phase 2: Frontend Clone | 🚧 In Progress | 40% |
-| Phase 3: Backend Integration | ✅ Complete | 100% |
-| Phase 4: Admin Panel | ✅ Complete | 100% |
+| Phase 3: Backend Integration | 🚧 In Progress | ~85% |
+| Phase 4: Admin Panel | 🚧 In Progress | ~30% |
 | Phase 5: Deployment | 🚧 In Progress | 40% |
 
 ---
@@ -100,7 +100,7 @@
 
 ---
 
-## Phase 3: Backend Integration ✅
+## Phase 3: Backend Integration 🚧
 
 - [x] Created comprehensive API service layer (`src/lib/api.ts`) wrapping all Medusa client calls
 - [x] Updated `src/lib/medusa.ts` to re-export from API layer with full TypeScript types
@@ -121,9 +121,13 @@
 - [x] ProductCard: Handles real product data with images, discounts, brands
 - [x] TypeScript compiles with zero errors
 
+### Remaining gaps
+- Checkout payment cannot complete: checkout calls `setPaymentSession(cart.id, "manual")` but `@medusajs/payment-manual` is not installed and `medusa-config.ts` has no payment provider enabled (`plugins: []`). No Razorpay wiring either.
+- Publishable API key is not reproducibly provisioned: storefront hardcodes `pk_91ca8864...` but `seed.ts` never creates it; fresh DB+seed → `/store/*` 400s.
+
 ---
 
-## Phase 4: Admin Panel ✅
+## Phase 4: Admin Panel 🚧
 
 - [x] Admin API routes (products CRUD, orders, customers, discounts, settings, returns)
 - [x] Admin server route (serves SPA at /admin)
@@ -136,6 +140,12 @@
 - [x] Settings page (store name, brand, logo, theme, payment config)
 - [x] Admin layout with sidebar navigation
 - [x] Admin React widgets (dashboard widget)
+
+### Current gaps (v2)
+- `widgets/dashboard.tsx` is missing the required `zone` property and uses `export default defineWidgetConfig(...)` (returns a config object, not a component) — v2 needs `export default <Component>` + `export const config = defineWidgetConfig({ zone })`.
+- `routes/*.tsx` (products, orders, customers, discounts, bulk-upload, settings) have no `defineRouteConfig` export → not registered as v2 admin custom routes.
+- They call non-existent endpoints: `/admin/discounts` (v2 = `/admin/promotions`), `/admin/settings`, `/admin/products/bulk-upload`, `/admin/analytics/dashboard` (no `src/api/admin/` folder).
+- Native v2 admin at `/app` works; all custom Phase 4 pages/widgets are non-functional.
 
 ---
 
@@ -227,3 +237,4 @@
 
 ## Session Log
 | 2026-07-07 | 5 | Refined PDP to match Myntra design: image gallery with hover zoom, thumbnail opacity states, brand/price/rating sections, size selector, pincode checker, add-to-bag button, delivery info, product details, ratings breakdown. Fixed ProductCard.tsx syntax error. Build succeeds with all 13 pages. | Continue refinement of remaining pages. |
+| 2026-07-07 | 6 | Fresh evidence-based audit of current codebase. Verified old audit was stale (v1→v2 migration done, prices/auth/cart/headsearch fixed). Real findings: CRITICAL = no payment provider (checkout can't complete), publishable key not reproducible, setup.sh broken; HIGH = custom admin extensions misstructured for v2; MEDIUM = no account auth guards, broken /collections/ PDP link. Both storefront+backend tsc 0 errors. | Fix criticals + mediums via DeepSeek workers + GLM 5.2 review gate. |

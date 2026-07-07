@@ -1,11 +1,13 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash } from "react-icons/hi"
 import { getCustomer, addCustomerAddress, updateCustomerAddress, deleteCustomerAddress } from "@/lib/medusa"
 import type { MedusaAddress } from "@/lib/medusa"
 
 export default function AddressesPage() {
+  const router = useRouter()
   const [addresses, setAddresses] = useState<MedusaAddress[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -30,7 +32,9 @@ export default function AddressesPage() {
         const cust = await getCustomer()
         setAddresses(cust.shipping_addresses || [])
       } catch (err) {
-        console.error("Failed to load addresses:", err)
+        console.error("Not authenticated or load failed:", err)
+        router.push("/account")
+        return
       }
       setLoading(false)
     }

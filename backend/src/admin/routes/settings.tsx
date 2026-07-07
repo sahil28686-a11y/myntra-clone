@@ -1,4 +1,7 @@
 import React, { useState, useEffect } from "react"
+import { defineRouteConfig } from "@medusajs/admin-sdk"
+
+export const config = defineRouteConfig({ label: "Settings" })
 
 export default function SettingsPage() {
   const [store, setStore] = useState<any>(null)
@@ -6,9 +9,7 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false)
   const [formData, setFormData] = useState({
     name: "",
-    brand_name: "",
-    logo_url: "",
-    theme_id: "light",
+    default_currency_code: "",
   })
   const [saveMessage, setSaveMessage] = useState("")
 
@@ -18,35 +19,53 @@ export default function SettingsPage() {
 
   const fetchSettings = async () => {
     try {
-      const res = await fetch("/admin/settings")
+      // v2 AdminStoreListResponse: { stores, count, limit, offset }
+      const res = await fetch("/admin/stores")
       const data = await res.json()
-      setStore(data.store)
-      setFormData({
-        name: data.store.name || "",
-        brand_name: data.store.brand_name || "",
-        logo_url: data.store.logo_url || "",
-        theme_id: data.store.theme_id || "light",
-      })
+      const stores = data.stores || []
+      const s = stores[0] || null
+      setStore(s)
+      if (s) {
+        // Derive default currency from supported_currencies
+        const defCur = (s.supported_currencies || []).find((c: any) => c.is_default)
+        setFormData({
+          name: s.name || "",
+          default_currency_code: defCur?.currency_code || "inr",
+        })
+      }
     } catch (err) {
-      console.error("Failed to fetch settings", err)
+      console.error("Failed to fetch store settings", err)
     }
     setLoading(false)
   }
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!store?.id) return
     setSaving(true)
     setSaveMessage("")
     try {
-      const res = await fetch("/admin/settings", {
-        method: "PUT",
+      // AdminUpdateStore: { name?, supported_currencies?, ... }
+      const payload: Record<string, any> = {
+        name: formData.name,
+        supported_currencies: [
+          {
+            currency_code: formData.default_currency_code,
+            is_default: true,
+          },
+        ],
+      }
+      const res = await fetch(`/admin/stores/${store.id}`, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       })
       if (res.ok) {
         setSaveMessage("Settings saved successfully!")
+        fetchSettings()
       } else {
-        setSaveMessage("Failed to save settings")
+        const errData = await res.json().catch(() => ({}))
+        setSaveMessage(errData.message || "Failed to save settings")
       }
     } catch (err) {
       setSaveMessage("Error saving settings")
@@ -74,44 +93,14 @@ export default function SettingsPage() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Brand Name</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Default Currency</label>
               <input
                 type="text"
-                value={formData.brand_name}
-                onChange={(e) => setFormData({ ...formData, brand_name: e.target.value })}
+                value={formData.default_currency_code}
+                onChange={(e) => setFormData({ ...formData, default_currency_code: e.target.value })}
                 className="w-full border rounded px-3 py-2"
+                placeholder="inr"
               />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Logo URL</label>
-              <input
-                type="text"
-                value={formData.logo_url}
-                onChange={(e) => setFormData({ ...formData, logo_url: e.target.value })}
-                className="w-full border rounded px-3 py-2"
-                placeholder="https://example.com/logo.png"
-              />
-              {formData.logo_url && (
-                <img
-                  src={formData.logo_url}
-                  alt="Logo preview"
-                  className="mt-2 h-12 object-contain border rounded"
-                  onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }}
-                />
-              )}
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Theme</label>
-              <select
-                value={formData.theme_id}
-                onChange={(e) => setFormData({ ...formData, theme_id: e.target.value })}
-                className="w-full border rounded px-3 py-2"
-              >
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
-                <option value="minimal">Minimal</option>
-                <option value="vibrant">Vibrant</option>
-              </select>
             </div>
 
             <button
@@ -155,15 +144,19 @@ export default function SettingsPage() {
             <div className="space-y-2 text-sm">
               <div>
                 <span className="text-gray-500">Store ID:</span>
-                <span className="ml-2 font-mono">{store?.id}</span>
+                <span className="ml-2 font-mono">{store?.id || "-"}</span>
               </div>
               <div>
                 <span className="text-gray-500">Default Currency:</span>
-                <span className="ml-2">INR</span>
+                <span className="ml-2">{formData.default_currency_code?.toUpperCase() || "-"}</span>
+              </div>
+              <div>
+                <span className="text-gray-500">Default Sales Channel:</span>
+                <span className="ml-2 font-mono text-xs">{store?.default_sales_channel_id || "-"}</span>
               </div>
               <div>
                 <span className="text-gray-500">Default Region:</span>
-                <span className="ml-2">India</span>
+                <span className="ml-2 font-mono text-xs">{store?.default_region_id || "-"}</span>
               </div>
             </div>
           </div>

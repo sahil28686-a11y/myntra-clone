@@ -1,4 +1,10 @@
+import multer from "multer"
 import { defineMiddlewares, authenticate } from "@medusajs/medusa"
+
+// In-memory multer for the bulk-upload admin route (mirrors v2 core's
+// admin/uploads middlewares.js, which uses multer.memoryStorage()). v2 does
+// NOT auto-parse multipart — a multer middleware must be registered per route.
+const upload = multer({ storage: multer.memoryStorage() })
 
 /**
  * v2 middleware registration for custom API routes.
@@ -39,6 +45,13 @@ export default defineMiddlewares({
       method: "GET",
       matcher: "/store/returns/:id",
       middlewares: [authenticate("customer", ["session", "bearer"])],
+    },
+    // Admin bulk-upload — parse the multipart `file` field. Admin routes are
+    // auth-protected by default; this only adds multipart parsing.
+    {
+      method: "POST",
+      matcher: "/admin/products/bulk-upload",
+      middlewares: [upload.single("file")],
     },
   ],
 })

@@ -2,10 +2,12 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { HiOutlineTrash } from "react-icons/hi"
 import { formatPrice, getWishlist, removeFromWishlist, addToCart, createCart } from "@/lib/medusa"
 
 export default function WishlistPage() {
+  const router = useRouter()
   const [items, setItems] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -15,7 +17,9 @@ export default function WishlistPage() {
         const result = await getWishlist()
         setItems(result.items || [])
       } catch (err) {
-        console.error("Failed to load wishlist:", err)
+        console.error("Not authenticated or load failed:", err)
+        router.push("/account")
+        return
       }
       setLoading(false)
     }
@@ -65,9 +69,10 @@ export default function WishlistPage() {
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
           {items.map((item: any) => {
             const product = item.product || item
-            const amount = product.variants?.[0]?.prices?.[0]?.amount ?? 0
-            const maxAmount = product.variants?.length > 1
-              ? Math.max(...product.variants.map((v: any) => v.prices?.[0]?.amount ?? 0))
+            // v2 prices: variant.calculated_amount (paise) / original_amount (paise).
+            const amount = product.variants?.[0]?.calculated_amount ?? product.variants?.[0]?.calculated_price?.calculated_amount ?? 0
+            const maxAmount = product.variants?.length > 0
+              ? Math.max(...product.variants.map((v: any) => v.original_amount ?? v.calculated_price?.original_amount ?? 0).filter(Boolean))
               : undefined
             // formatPrice divides by 100 (paise -> rupees); pass raw amounts.
             const discount = maxAmount && maxAmount > amount ? Math.round((1 - amount / maxAmount) * 100) : 0

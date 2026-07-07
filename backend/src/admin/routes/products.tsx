@@ -1,4 +1,7 @@
 import React, { useState, useEffect } from "react"
+import { defineRouteConfig } from "@medusajs/admin-sdk"
+
+export const config = defineRouteConfig({ label: "Products" })
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<any[]>([])
@@ -20,10 +23,10 @@ export default function ProductsPage() {
   const fetchProducts = async () => {
     setLoading(true)
     try {
-      const res = await fetch(`/admin/products?page=${page}&limit=20`)
+      const res = await fetch(`/admin/products?limit=20&offset=${(page - 1) * 20}`)
       const data = await res.json()
       setProducts(data.products || [])
-      setTotalPages(data.total_pages || 1)
+      setTotalPages(Math.ceil((data.count || 0) / 20) || 1)
     } catch (err) {
       console.error("Failed to fetch products", err)
     }
@@ -34,7 +37,7 @@ export default function ProductsPage() {
     e.preventDefault()
     try {
       const url = editProduct ? `/admin/products/${editProduct.id}` : "/admin/products"
-      const method = editProduct ? "PUT" : "POST"
+      const method = "POST"
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },

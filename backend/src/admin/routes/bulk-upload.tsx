@@ -1,4 +1,7 @@
 import React, { useState } from "react"
+import { defineRouteConfig } from "@medusajs/admin-sdk"
+
+export const config = defineRouteConfig({ label: "Bulk Upload" })
 
 export default function BulkUploadPage() {
   const [file, setFile] = useState<File | null>(null)

@@ -138,7 +138,7 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
   // Collection link — only link if a handle exists; otherwise fall back to the
   // products listing so we never emit a broken /collections route.
   const collectionHref = product.collection?.handle
-    ? `/collections/${product.collection.handle}`
+    ? `/products?collection=${product.collection.handle}`
     : "/products"
 
   // Extract unique sizes from variants

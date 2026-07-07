@@ -34,11 +34,7 @@ npx medusa migrations run
 
 echo ""
 echo "=== Step 5: Seeding data ==="
-npx medusa exec src/scripts/seed-categories.ts
-npx medusa exec src/scripts/seed-products.ts
-npx medusa exec src/scripts/seed-pincodes.ts
-npx medusa exec src/scripts/seed-taxes.ts
-npx medusa exec src/scripts/seed-payment.ts
+npx medusa exec src/scripts/seed.ts
 
 echo ""
 echo "=== Step 6: Building backend ==="

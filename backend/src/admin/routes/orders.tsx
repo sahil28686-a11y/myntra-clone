@@ -1,4 +1,7 @@
 import React, { useState, useEffect } from "react"
+import { defineRouteConfig } from "@medusajs/admin-sdk"
+
+export const config = defineRouteConfig({ label: "Orders" })
 
 export default function OrdersPage() {
   const [orders, setOrders] = useState<any[]>([])
@@ -15,12 +18,12 @@ export default function OrdersPage() {
   const fetchOrders = async () => {
     setLoading(true)
     try {
-      const params = new URLSearchParams({ page: String(page), limit: "20" })
+      const params = new URLSearchParams({ limit: "20", offset: String((page - 1) * 20) })
       if (statusFilter !== "all") params.set("status", statusFilter)
       const res = await fetch(`/admin/orders?${params}`)
       const data = await res.json()
       setOrders(data.orders || [])
-      setTotalPages(data.total_pages || 1)
+      setTotalPages(Math.ceil((data.count || 0) / 20) || 1)
     } catch (err) {
       console.error("Failed to fetch orders", err)
     }

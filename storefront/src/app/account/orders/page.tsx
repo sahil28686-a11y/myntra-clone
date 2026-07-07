@@ -2,10 +2,12 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { getOrders, formatPrice } from "@/lib/medusa"
 import type { MedusaOrder } from "@/lib/medusa"
 
 export default function OrdersPage() {
+  const router = useRouter()
   const [orders, setOrders] = useState<MedusaOrder[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -15,7 +17,9 @@ export default function OrdersPage() {
         const ords = await getOrders()
         setOrders(ords)
       } catch (err) {
-        console.error("Failed to load orders:", err)
+        console.error("Not authenticated or load failed:", err)
+        router.push("/account")
+        return
       }
       setLoading(false)
     }

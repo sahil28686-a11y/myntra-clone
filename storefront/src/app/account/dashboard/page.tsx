@@ -28,7 +28,9 @@ export default function DashboardPage() {
         const ords = await getOrders()
         setOrders(ords)
       } catch (err) {
-        console.error("Failed to load dashboard:", err)
+        console.error("Not authenticated or load failed:", err)
+        router.push("/account")
+        return
       }
       setLoading(false)
     }

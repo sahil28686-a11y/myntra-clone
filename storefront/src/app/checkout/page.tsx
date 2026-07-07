@@ -143,8 +143,9 @@ export default function CheckoutPage() {
     if (!cart) return
     setSubmitting(true)
     try {
-      // Set payment session — COD via the manual provider (decision §6.1).
-      await setPaymentSession(cart.id, "manual")
+      // Set payment session — COD via the built-in SystemPaymentProvider.
+      // Provider id: pp_system_default (auto-registered by @medusajs/payment).
+      await setPaymentSession(cart.id, "pp_system_default")
 
       // Complete the cart (place order)
       const result = await completeCart(cart.id)
