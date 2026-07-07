@@ -1,5 +1,5 @@
 import React from "react"
-import AdminLayout from "../components/Layout"
+import AdminLayout from "./components/Layout"
 
 export default function AdminIndex() {
   return (

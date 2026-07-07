@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react"
 import { defineWidgetConfig } from "@medusajs/admin-sdk"
 
 // Dashboard Widget — Shows analytics overview
@@ -9,10 +10,10 @@ export default defineWidgetConfig({
 })
 
 function DashboardWidget() {
-  const [data, setData] = React.useState<any>(null)
-  const [loading, setLoading] = React.useState(true)
+  const [data, setData] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
 
-  React.useEffect(() => {
+  useEffect(() => {
     fetch("/admin/analytics/dashboard")
       .then((res) => res.json())
       .then((data) => {
