@@ -12,7 +12,7 @@ import { defineConfig } from "@medusajs/framework/utils"
  * Environment variables are read from `process.env` (loaded automatically by
  * Medusa from `backend/.env`).
  */
-module.exports = defineConfig({
+export default defineConfig({
   projectConfig: {
     databaseUrl: process.env.DATABASE_URL,
     redisUrl: process.env.REDIS_URL,

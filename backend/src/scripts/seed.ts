@@ -49,6 +49,7 @@ export default async function seed({ container }: SeedParams) {
   const regionModule = resolve(Modules.REGION)
   const productModule = resolve(Modules.PRODUCT)
   const pricingModule = resolve(Modules.PRICING)
+  const salesChannelModule = resolve(Modules.SALES_CHANNEL)
   const remoteLink = resolve(ContainerRegistrationKeys.LINK)
   // M2 additions:
   const pincodeModule = resolve("pincode")
@@ -307,6 +308,34 @@ export default async function seed({ container }: SeedParams) {
         [Modules.PRODUCT]: { variant_id: variant.id },
         [Modules.PRICING]: { price_set_id: priceSet.id },
       })
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 3b. Link all products to the default sales channel (required for v2
+  //     /store/products to return products when queried with a publishable
+  //     API key). The default sales channel + publishable API key are created
+  //     automatically by the v2 core migrations/seed. This is idempotent.
+  // ---------------------------------------------------------------------------
+  const defaultSalesChannels = (await salesChannelModule.listSalesChannels({
+    name: "Default Sales Channel",
+  })) as any[]
+  const defaultSalesChannelId = defaultSalesChannels[0]?.id
+  if (defaultSalesChannelId) {
+    const allProducts = (await productModule.listProducts({})) as any[]
+    const productsToLink = allProducts.filter(
+      (p) => !p.sales_channels?.some?.((sc: any) => sc.id === defaultSalesChannelId)
+    )
+    if (productsToLink.length > 0) {
+      await remoteLink.create(
+        productsToLink.map((p) => ({
+          [Modules.PRODUCT]: { product_id: p.id },
+          [Modules.SALES_CHANNEL]: { sales_channel_id: defaultSalesChannelId },
+        }))
+      )
+      console.log(
+        `✓ Linked ${productsToLink.length} products to the default sales channel`
+      )
     }
   }
 
