@@ -316,6 +316,18 @@ export async function completeCart(cartId: string): Promise<{ type: string; data
   return medusaClient.carts.complete(cartId)
 }
 
+export async function applyCartDiscount(cartId: string, code: string): Promise<MedusaCart> {
+  // The installed SDK has no carts.addDiscount method. Discounts are applied by
+  // updating the cart with a discounts array: POST /store/carts/{id} { discounts: [{ code }] }.
+  const { cart } = await medusaClient.carts.update(cartId, { discounts: [{ code }] })
+  return cart
+}
+
+export async function removeCartDiscount(cartId: string, code: string): Promise<MedusaCart> {
+  const { cart } = await medusaClient.carts.deleteDiscount(cartId, code)
+  return cart
+}
+
 // ---------------------------------------------------------------------------
 // Shipping Options
 // ---------------------------------------------------------------------------
@@ -335,8 +347,11 @@ export async function getRegions(): Promise<any[]> {
 // ---------------------------------------------------------------------------
 // Orders
 // ---------------------------------------------------------------------------
-export async function getOrders(customerId: string): Promise<MedusaOrder[]> {
-  const { orders } = await medusaClient.orders.list({ customer_id: customerId })
+export async function getOrders(): Promise<MedusaOrder[]> {
+  // v2 store API auto-scopes orders to the logged-in customer session.
+  // The installed @medusajs/medusa-js SDK (v2.0.2) exposes this via
+  // customers.listOrders() -> GET /store/customers/me/orders (cookie-scoped).
+  const { orders } = await medusaClient.customers.listOrders()
   return orders
 }
 
@@ -359,7 +374,26 @@ export async function registerCustomer(data: {
 }
 
 export async function loginCustomer(email: string, password: string): Promise<{ customer: MedusaCustomer }> {
-  return medusaClient.auth.create({ email, password })
+  // The installed SDK uses auth.authenticate (POST /store/auth). The session is
+  // persisted automatically via an httpOnly cookie — the axios client is created
+  // with `withCredentials: true`, so the browser sends the cookie on later
+  // requests (e.g. customers.retrieve -> /store/customers/me).
+  return medusaClient.auth.authenticate({ email, password })
+}
+
+export async function logoutCustomer(): Promise<void> {
+  // DELETE /store/auth clears the server-side session cookie.
+  await medusaClient.auth.deleteSession()
+}
+
+export async function isAuthenticated(): Promise<boolean> {
+  // GET /store/auth returns the customer when a session cookie is present.
+  try {
+    await medusaClient.auth.getSession()
+    return true
+  } catch {
+    return false
+  }
 }
 
 export async function getCustomer(): Promise<MedusaCustomer> {
@@ -461,6 +495,18 @@ export async function getReturns() {
 // Helpers
 // ---------------------------------------------------------------------------
 export function formatPrice(amount: number, currency = "INR") {
+  // Medusa returns money values in the smallest currency unit (paise for INR).
+  // Divide by 100 before formatting so formatPrice(129900) -> "₹1,299".
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 0,
+  }).format(amount / 100)
+}
+
+export function formatPriceRupees(amount: number, currency = "INR") {
+  // For amounts already expressed in rupees (e.g. mock/fallback data, or
+  // values already divided by 100 via getVariantPrice). formatPriceRupees(1299) -> "₹1,299".
   return new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency,

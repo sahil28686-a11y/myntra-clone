@@ -65,13 +65,12 @@ export default function WishlistPage() {
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
           {items.map((item: any) => {
             const product = item.product || item
-            const price = product.variants?.[0]?.prices?.[0]?.amount
-              ? product.variants[0].prices[0].amount / 100
-              : 0
-            const originalPrice = product.variants?.length > 1
-              ? Math.max(...product.variants.map((v: any) => (v.prices?.[0]?.amount || 0) / 100))
+            const amount = product.variants?.[0]?.prices?.[0]?.amount ?? 0
+            const maxAmount = product.variants?.length > 1
+              ? Math.max(...product.variants.map((v: any) => v.prices?.[0]?.amount ?? 0))
               : undefined
-            const discount = originalPrice ? Math.round((1 - price / originalPrice) * 100) : 0
+            // formatPrice divides by 100 (paise -> rupees); pass raw amounts.
+            const discount = maxAmount && maxAmount > amount ? Math.round((1 - amount / maxAmount) * 100) : 0
             const thumbnail = product.thumbnail || ""
 
             return (
@@ -104,9 +103,9 @@ export default function WishlistPage() {
                     )}
                     <p className="text-sm text-myntra-dark">{product.title}</p>
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold">{formatPrice(price)}</span>
-                      {originalPrice && originalPrice > price && (
-                        <span className="text-xs text-myntra-muted line-through">{formatPrice(originalPrice)}</span>
+                      <span className="text-sm font-bold">{formatPrice(amount)}</span>
+                      {maxAmount && maxAmount > amount && (
+                        <span className="text-xs text-myntra-muted line-through">{formatPrice(maxAmount)}</span>
                       )}
                     </div>
                   </div>

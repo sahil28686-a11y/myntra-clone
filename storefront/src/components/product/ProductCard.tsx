@@ -1,8 +1,9 @@
 import Link from "next/link"
 import { HiOutlineHeart } from "react-icons/hi"
-import { formatPrice } from "@/lib/medusa"
+import { formatPriceRupees, getCheapestVariantPrice, getProductThumbnail } from "@/lib/medusa"
+import type { MedusaProduct } from "@/lib/medusa"
 
-interface Product {
+interface MockProduct {
   id: string
   title: string
   handle: string
@@ -13,9 +14,53 @@ interface Product {
   brand?: string
 }
 
-export default function ProductCard({ product }: { product: Product }) {
-  const discount = product.originalPrice && product.originalPrice > product.price
-    ? Math.round((1 - product.price / product.originalPrice) * 100)
+interface ProductCardDisplay {
+  id: string
+  title: string
+  handle: string
+  price: number
+  originalPrice?: number
+  image: string
+  rating?: number
+  brand?: string
+}
+
+/**
+ * Accepts either a mock product (price in rupees) or a real MedusaProduct
+ * (variants with prices in paise). Visual layout is identical for both.
+ */
+function toDisplay(product: MockProduct | MedusaProduct): ProductCardDisplay {
+  // A MedusaProduct has a `variants` array; a mock product has a numeric `price`.
+  if ("variants" in product && Array.isArray(product.variants)) {
+    const { price, originalPrice } = getCheapestVariantPrice((product as MedusaProduct).variants)
+    return {
+      id: product.id,
+      title: product.title,
+      handle: product.handle,
+      price,
+      originalPrice,
+      image: getProductThumbnail(product as MedusaProduct),
+      // Medusa products don't carry a client-side rating in this shape.
+      brand: (product as MedusaProduct).collection?.title || undefined,
+    }
+  }
+  const mock = product as MockProduct
+  return {
+    id: mock.id,
+    title: mock.title,
+    handle: mock.handle,
+    price: mock.price,
+    originalPrice: mock.originalPrice,
+    image: mock.image,
+    rating: mock.rating,
+    brand: mock.brand,
+  }
+}
+
+export default function ProductCard({ product }: { product: MockProduct | MedusaProduct }) {
+  const p = toDisplay(product)
+  const discount = p.originalPrice && p.originalPrice > p.price
+    ? Math.round((1 - p.price / p.originalPrice) * 100)
     : 0
 
   return (
@@ -31,10 +76,10 @@ export default function ProductCard({ product }: { product: Product }) {
       <Link href={`/products/${product.handle}`} className="block">
         {/* Image - Myntra uses aspect-[3/4] with no rounded corners */}
         <div className="aspect-[3/4] bg-[#F5F5F6] relative overflow-hidden">
-          {product.image ? (
+          {p.image ? (
             <img
-              src={product.image}
-              alt={product.title}
+              src={p.image}
+              alt={p.title}
               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
             />
           ) : (
@@ -51,17 +96,17 @@ export default function ProductCard({ product }: { product: Product }) {
 
         {/* Details - Myntra uses specific spacing and typography */}
         <div className="mt-[10px] px-0 space-y-[1px]">
-          {product.brand && (
-            <p className="text-[14px] font-bold text-[#282C3F] leading-[1.3]">{product.brand}</p>
+          {p.brand && (
+            <p className="text-[14px] font-bold text-[#282C3F] leading-[1.3]">{p.brand}</p>
           )}
-          <p className="text-[14px] text-[#535766] line-clamp-2 leading-[1.3]">{product.title}</p>
+          <p className="text-[14px] text-[#535766] line-clamp-2 leading-[1.3]">{p.title}</p>
           <div className="flex items-center gap-[5px] mt-[5px] flex-wrap">
             <span className="text-[14px] font-bold text-[#282C3F]">
-              {formatPrice(product.price)}
+              {formatPriceRupees(p.price)}
             </span>
-            {product.originalPrice && product.originalPrice > product.price && (
+            {p.originalPrice && p.originalPrice > p.price && (
               <span className="text-[12px] text-[#94969F] line-through">
-                {formatPrice(product.originalPrice)}
+                {formatPriceRupees(p.originalPrice)}
               </span>
             )}
             {discount > 0 && (
@@ -70,10 +115,10 @@ export default function ProductCard({ product }: { product: Product }) {
               </span>
             )}
           </div>
-          {product.rating && (
+          {p.rating && (
             <div className="flex items-center gap-1 mt-[6px]">
               <span className="text-[11px] bg-[#4F6D4A] text-white px-[4px] py-[1px] font-medium">
-                {product.rating} ★
+                {p.rating} ★
               </span>
             </div>
           )}

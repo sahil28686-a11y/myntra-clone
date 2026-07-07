@@ -44,8 +44,8 @@ export default function CheckoutPage() {
   const [shippingOptions, setShippingOptions] = useState<any[]>([])
   const [selectedShipping, setSelectedShipping] = useState<string | null>(null)
 
-  // Payment
-  const [selectedPayment, setSelectedPayment] = useState<string>("razorpay")
+  // Payment — COD only per decision §6.1.
+  const [selectedPayment] = useState<string>("cod")
 
   // Load cart on mount
   useEffect(() => {
@@ -143,9 +143,8 @@ export default function CheckoutPage() {
     if (!cart) return
     setSubmitting(true)
     try {
-      // Set payment session
-      const providerId = selectedPayment === "razorpay" ? "razorpay" : "manual"
-      await setPaymentSession(cart.id, providerId)
+      // Set payment session — COD via the manual provider (decision §6.1).
+      await setPaymentSession(cart.id, "manual")
 
       // Complete the cart (place order)
       const result = await completeCart(cart.id)
@@ -168,8 +167,21 @@ export default function CheckoutPage() {
     )
   }
 
+  // Empty cart -> show empty state, not a fake hardcoded summary.
+  if (!cart?.items || cart.items.length === 0) {
+    return (
+      <div className="max-w-container mx-auto px-4 md:px-8 py-16 text-center">
+        <h1 className="text-xl font-bold text-myntra-dark mb-2">Your bag is empty</h1>
+        <p className="text-sm text-myntra-muted mb-6">Add some products before checking out.</p>
+        <Link href="/products" className="btn-primary inline-block">
+          Continue Shopping
+        </Link>
+      </div>
+    )
+  }
+
   const subtotal = cart?.subtotal || 0
-  const delivery = cart?.shipping_total || (subtotal > 4999 ? 0 : 99)
+  const delivery = cart?.shipping_total || (subtotal > 0 && subtotal < 499900 ? 9900 : 0)
   const total = cart?.total || (subtotal + delivery)
 
   return (
@@ -324,28 +336,11 @@ export default function CheckoutPage() {
                   ))}
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {[
-                    { name: "Standard Delivery", eta: "5-7 business days", price: 49 },
-                    { name: "Express Delivery", eta: "2-3 business days", price: 99 },
-                    { name: "Free Delivery", eta: "7-10 business days", price: 0 },
-                  ].map((method) => (
-                    <label key={method.name} className="flex items-center gap-4 p-4 border border-myntra-border rounded-sm cursor-pointer hover:border-myntra-dark">
-                      <input type="radio" name="shipping" className="accent-myntra-primary" defaultChecked={method.price === 0} />
-                      <div className="flex-1">
-                        <p className="text-sm font-semibold">{method.name}</p>
-                        <p className="text-xs text-myntra-muted">{method.eta}</p>
-                      </div>
-                      <span className="text-sm font-semibold">
-                        {method.price === 0 ? "FREE" : formatPrice(method.price)}
-                      </span>
-                    </label>
-                  ))}
-                </div>
+                <p className="text-sm text-myntra-muted">No shipping options available for this address. Please check your pincode or try a different address.</p>
               )}
               <button
                 onClick={handleShippingSubmit}
-                disabled={submitting}
+                disabled={submitting || !selectedShipping}
                 className="bg-myntra-primary text-white font-semibold py-3 px-8 uppercase tracking-wider text-sm hover:opacity-90 transition-opacity disabled:opacity-50"
               >
                 {submitting ? "Saving..." : "Continue to Payment"}
@@ -357,26 +352,25 @@ export default function CheckoutPage() {
             <div className="space-y-6">
               <h2 className="text-lg font-bold uppercase tracking-wider">Payment Method</h2>
               <div className="space-y-3">
-                <label className="flex items-center gap-4 p-4 border border-myntra-border rounded-sm cursor-pointer hover:border-myntra-dark">
+                <div className="flex items-center gap-4 p-4 border border-myntra-border rounded-sm opacity-60">
                   <input
                     type="radio"
                     name="payment"
                     className="accent-myntra-primary"
-                    checked={selectedPayment === "razorpay"}
-                    onChange={() => setSelectedPayment("razorpay")}
+                    disabled
                   />
                   <div>
-                    <p className="text-sm font-semibold">Razorpay</p>
+                    <p className="text-sm font-semibold">Razorpay <span className="text-xs font-normal text-myntra-muted">(Coming soon)</span></p>
                     <p className="text-xs text-myntra-muted">Credit/Debit Card, UPI, Net Banking</p>
                   </div>
-                </label>
+                </div>
                 <label className="flex items-center gap-4 p-4 border border-myntra-border rounded-sm cursor-pointer hover:border-myntra-dark">
                   <input
                     type="radio"
                     name="payment"
                     className="accent-myntra-primary"
                     checked={selectedPayment === "cod"}
-                    onChange={() => setSelectedPayment("cod")}
+                    readOnly
                   />
                   <div>
                     <p className="text-sm font-semibold">Cash on Delivery</p>
@@ -436,24 +430,7 @@ export default function CheckoutPage() {
                 ))}
               </div>
             ) : (
-              <div className="space-y-3">
-                <div className="flex gap-3">
-                  <div className="w-12 h-16 bg-myntra-lightgray rounded-sm flex-shrink-0" />
-                  <div>
-                    <p className="text-sm font-semibold">Classic Fit Polo T-Shirt</p>
-                    <p className="text-xs text-myntra-muted">Qty: 1</p>
-                    <p className="text-sm font-bold mt-1">{formatPrice(1299)}</p>
-                  </div>
-                </div>
-                <div className="flex gap-3">
-                  <div className="w-12 h-16 bg-myntra-lightgray rounded-sm flex-shrink-0" />
-                  <div>
-                    <p className="text-sm font-semibold">Slim Fit Jeans</p>
-                    <p className="text-xs text-myntra-muted">Qty: 1</p>
-                    <p className="text-sm font-bold mt-1">{formatPrice(1999)}</p>
-                  </div>
-                </div>
-              </div>
+              <p className="text-sm text-myntra-muted">Your bag is empty.</p>
             )}
             <hr className="border-myntra-border" />
             <div className="space-y-2 text-sm">

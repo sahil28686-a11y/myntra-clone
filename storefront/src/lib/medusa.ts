@@ -26,12 +26,17 @@ import {
   createPaymentSession as _createPaymentSession,
   setPaymentSession as _setPaymentSession,
   completeCart as _completeCart,
+  applyCartDiscount as _applyCartDiscount,
+  removeCartDiscount as _removeCartDiscount,
   getShippingOptions as _getShippingOptions,
   getRegions as _getRegions,
   getOrders as _getOrders,
   getOrder as _getOrder,
   registerCustomer as _registerCustomer,
   loginCustomer as _loginCustomer,
+  logoutCustomer as _logoutCustomer,
+  isAuthenticated as _isAuthenticated,
+  formatPriceRupees as _formatPriceRupees,
   getCustomer as _getCustomer,
   updateCustomer as _updateCustomer,
   addCustomerAddress as _addCustomerAddress,
@@ -69,12 +74,17 @@ export const setCartShippingMethod = _setCartShippingMethod
 export const createPaymentSession = _createPaymentSession
 export const setPaymentSession = _setPaymentSession
 export const completeCart = _completeCart
+export const applyCartDiscount = _applyCartDiscount
+export const removeCartDiscount = _removeCartDiscount
 export const getShippingOptions = _getShippingOptions
 export const getRegions = _getRegions
 export const getOrders = _getOrders
 export const getOrder = _getOrder
 export const registerCustomer = _registerCustomer
 export const loginCustomer = _loginCustomer
+export const logoutCustomer = _logoutCustomer
+export const isAuthenticated = _isAuthenticated
+export const formatPriceRupees = _formatPriceRupees
 export const getCustomer = _getCustomer
 export const updateCustomer = _updateCustomer
 export const addCustomerAddress = _addCustomerAddress

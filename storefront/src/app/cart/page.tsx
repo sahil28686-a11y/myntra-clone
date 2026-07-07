@@ -3,14 +3,16 @@
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import { HiOutlineTrash, HiOutlineMinus, HiOutlinePlus } from "react-icons/hi"
-import { formatPrice, getCart, updateCartItem, removeCartItem, createCart } from "@/lib/medusa"
+import { formatPrice, getCart, updateCartItem, removeCartItem, createCart, applyCartDiscount, removeCartDiscount } from "@/lib/medusa"
 import type { MedusaCart, MedusaLineItem } from "@/lib/medusa"
 
 export default function CartPage() {
   const [cart, setCart] = useState<MedusaCart | null>(null)
   const [loading, setLoading] = useState(true)
   const [coupon, setCoupon] = useState("")
+  const [couponError, setCouponError] = useState<string | null>(null)
   const [couponApplied, setCouponApplied] = useState(false)
+  const [couponBusy, setCouponBusy] = useState(false)
 
   // Load cart on mount
   useEffect(() => {
@@ -52,6 +54,36 @@ export default function CartPage() {
     }
   }
 
+  const applyCoupon = async () => {
+    if (!cart || !coupon) return
+    setCouponBusy(true)
+    setCouponError(null)
+    try {
+      const updated = await applyCartDiscount(cart.id, coupon)
+      setCart(updated)
+      setCouponApplied(true)
+    } catch (err: any) {
+      setCouponError(err?.message || "Failed to apply coupon")
+      setCouponApplied(false)
+    }
+    setCouponBusy(false)
+  }
+
+  const removeCoupon = async () => {
+    if (!cart || !coupon) return
+    setCouponBusy(true)
+    setCouponError(null)
+    try {
+      const updated = await removeCartDiscount(cart.id, coupon)
+      setCart(updated)
+      setCouponApplied(false)
+      setCoupon("")
+    } catch (err: any) {
+      setCouponError(err?.message || "Failed to remove coupon")
+    }
+    setCouponBusy(false)
+  }
+
   if (loading) {
     return (
       <div className="max-w-container mx-auto px-4 md:px-8 py-12 text-center">
@@ -62,9 +94,12 @@ export default function CartPage() {
 
   const items = cart?.items || []
   const subtotal = cart?.subtotal || 0
-  const discount = couponApplied ? subtotal * 0.1 : 0
-  const delivery = subtotal > 4999 ? 0 : 99
-  const total = subtotal - discount + delivery
+  const discount = cart?.discount_total || 0
+  // Cart page doesn't set a shipping method, so shipping_total is usually 0.
+  // Show a UI delivery estimate in paise (₹99, free over ₹4,999) consistent
+  // with formatPrice (which divides by 100).
+  const delivery = cart?.shipping_total || (subtotal > 0 && subtotal < 499900 ? 9900 : 0)
+  const total = cart?.total || (subtotal - discount + delivery)
 
   return (
     <div className="max-w-container mx-auto px-4 md:px-8 py-6">
@@ -169,16 +204,29 @@ export default function CartPage() {
                   onChange={(e) => setCoupon(e.target.value.toUpperCase())}
                   className="flex-1 border border-myntra-border rounded-sm px-3 py-2 text-sm focus:outline-none focus:border-myntra-dark"
                 />
-                <button
-                  onClick={() => setCouponApplied(true)}
-                  disabled={!coupon}
-                  className="bg-myntra-dark text-white px-3 py-2 text-sm font-semibold rounded-sm disabled:opacity-50"
-                >
-                  Apply
-                </button>
+                {couponApplied ? (
+                  <button
+                    onClick={removeCoupon}
+                    disabled={couponBusy}
+                    className="bg-myntra-dark text-white px-3 py-2 text-sm font-semibold rounded-sm disabled:opacity-50"
+                  >
+                    {couponBusy ? "..." : "Remove"}
+                  </button>
+                ) : (
+                  <button
+                    onClick={applyCoupon}
+                    disabled={!coupon || couponBusy}
+                    className="bg-myntra-dark text-white px-3 py-2 text-sm font-semibold rounded-sm disabled:opacity-50"
+                  >
+                    {couponBusy ? "..." : "Apply"}
+                  </button>
+                )}
               </div>
               {couponApplied && (
-                <p className="text-xs text-green-600 mt-1">✅ Coupon applied! 10% off</p>
+                <p className="text-xs text-green-600 mt-1">✅ Coupon applied</p>
+              )}
+              {couponError && (
+                <p className="text-xs text-red-500 mt-1">{couponError}</p>
               )}
             </div>
 

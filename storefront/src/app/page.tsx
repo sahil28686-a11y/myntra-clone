@@ -1,5 +1,10 @@
+"use client"
+
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import ProductCard from "@/components/product/ProductCard"
+import { getProducts, getCollections } from "@/lib/medusa"
+import type { MedusaProduct, MedusaCollection } from "@/lib/medusa"
 
 const featuredCategories = [
   { name: "Men", image: "https://assets.myntassets.com/h_720,q_100,w_1080/v1/assets/images/2024/1/1/men-category.jpg", href: "/products?category=men" },
@@ -257,6 +262,48 @@ function CategorySection({ title, subtitle, items }: { title: string; subtitle: 
 }
 
 export default function HomePage() {
+  // Trending / Best Sellers / New Arrivals are populated from the Medusa API
+  // (getProducts) with a graceful fallback to mock data when the backend is
+  // unavailable. Featured categories fall back to the static set.
+  const [trending, setTrending] = useState<any[]>(trendingProducts)
+  const [bestSellers, setBestSellers] = useState<any[]>(productRow2)
+  const [newArrivals, setNewArrivals] = useState<any[]>(productRow3)
+  const [categories, setCategories] = useState(featuredCategories)
+
+  useEffect(() => {
+    let active = true
+    async function load() {
+      try {
+        const { products } = await getProducts({ limit: 10 })
+        if (!active || !products?.length) return
+        const apiProducts = products as MedusaProduct[]
+        // Split the first 10 API products across the three rows.
+        setTrending(apiProducts.slice(0, 5))
+        setBestSellers(apiProducts.slice(5, 10).length ? apiProducts.slice(5, 10) : productRow2)
+        // If the API returns fewer than 10, keep mock data for the empty rows.
+        if (apiProducts.length < 5) setTrending(trendingProducts)
+      } catch (err) {
+        console.warn("Homepage: Medusa API unavailable, showing mock products.", err)
+      }
+
+      try {
+        const collections = await getCollections()
+        if (!active || !collections?.length) return
+        setCategories(
+          collections.slice(0, 4).map((c: MedusaCollection) => ({
+            name: c.title,
+            image: "",
+            href: `/products?collection=${c.handle}`,
+          }))
+        )
+      } catch (err) {
+        console.warn("Homepage: collections unavailable, showing static categories.", err)
+      }
+    }
+    load()
+    return () => { active = false }
+  }, [])
+
   return (
     <div>
       {/* ===== HERO BANNER SECTION ===== */}
@@ -296,7 +343,7 @@ export default function HomePage() {
           Shop by Category
         </h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-[2px]">
-          {featuredCategories.map((cat) => (
+          {categories.map((cat) => (
             <Link key={cat.name} href={cat.href} className="group relative overflow-hidden aspect-[3/4] bg-[#F5F5F6] block">
               <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent z-10" />
               <div className="absolute bottom-0 left-0 right-0 z-20 p-4">
@@ -339,7 +386,7 @@ export default function HomePage() {
           </Link>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-[2px]">
-          {trendingProducts.map((product) => (
+          {trending.map((product) => (
             <ProductCard key={product.id} product={product} />
           ))}
         </div>
@@ -394,7 +441,7 @@ export default function HomePage() {
           </Link>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-[2px]">
-          {productRow2.map((product) => (
+          {bestSellers.map((product) => (
             <ProductCard key={product.id} product={product} />
           ))}
         </div>
@@ -410,7 +457,7 @@ export default function HomePage() {
           </Link>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-[2px]">
-          {productRow3.map((product) => (
+          {newArrivals.map((product) => (
             <ProductCard key={product.id} product={product} />
           ))}
         </div>

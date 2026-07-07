@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
-import { getCustomer, getOrders, formatPrice } from "@/lib/medusa"
+import { getOrders, formatPrice } from "@/lib/medusa"
 import type { MedusaOrder } from "@/lib/medusa"
 
 export default function OrdersPage() {
@@ -12,8 +12,7 @@ export default function OrdersPage() {
   useEffect(() => {
     async function load() {
       try {
-        const cust = await getCustomer()
-        const ords = await getOrders(cust.id)
+        const ords = await getOrders()
         setOrders(ords)
       } catch (err) {
         console.error("Failed to load orders:", err)

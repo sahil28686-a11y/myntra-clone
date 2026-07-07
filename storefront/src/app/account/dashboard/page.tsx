@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { HiOutlineUser, HiOutlineShoppingBag, HiOutlineHeart, HiOutlineLocationMarker, HiOutlineLogout } from "react-icons/hi"
-import { getCustomer, getOrders, formatPrice } from "@/lib/medusa"
+import { getCustomer, getOrders, formatPrice, logoutCustomer } from "@/lib/medusa"
 import type { MedusaCustomer, MedusaOrder } from "@/lib/medusa"
 
 const sidebarLinks = [
@@ -14,6 +15,7 @@ const sidebarLinks = [
 ]
 
 export default function DashboardPage() {
+  const router = useRouter()
   const [customer, setCustomer] = useState<MedusaCustomer | null>(null)
   const [orders, setOrders] = useState<MedusaOrder[]>([])
   const [loading, setLoading] = useState(true)
@@ -23,7 +25,7 @@ export default function DashboardPage() {
       try {
         const cust = await getCustomer()
         setCustomer(cust)
-        const ords = await getOrders(cust.id)
+        const ords = await getOrders()
         setOrders(ords)
       } catch (err) {
         console.error("Failed to load dashboard:", err)
@@ -32,6 +34,15 @@ export default function DashboardPage() {
     }
     load()
   }, [])
+
+  const handleLogout = async () => {
+    try {
+      await logoutCustomer()
+    } catch (err) {
+      console.error("Failed to logout:", err)
+    }
+    router.push("/account")
+  }
 
   if (loading) {
     return (
@@ -61,7 +72,10 @@ export default function DashboardPage() {
               </Link>
             ))}
             <hr className="border-myntra-border my-2" />
-            <button className="flex items-center gap-3 px-4 py-3 text-sm font-semibold text-red-500 hover:bg-red-50 rounded-sm w-full transition-colors">
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-3 px-4 py-3 text-sm font-semibold text-red-500 hover:bg-red-50 rounded-sm w-full transition-colors"
+            >
               <HiOutlineLogout size={18} />
               Logout
             </button>

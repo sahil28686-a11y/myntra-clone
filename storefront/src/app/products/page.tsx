@@ -1,11 +1,10 @@
 "use client"
 
+import { useState, useEffect, useMemo, Suspense } from "react"
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import ProductCard from "@/components/product/ProductCard"
-
-interface ProductsPageProps {
-  searchParams: { [key: string]: string | string[] | undefined }
-}
+import { getProducts } from "@/lib/medusa"
 
 const sortOptions = [
   { value: "default", label: "Sort by: Relevance" },
@@ -70,31 +69,100 @@ const fallbackProducts = [
   { id: "20", title: "Hoodie", handle: "hoodie", price: 2999, originalPrice: 5999, image: "https://assets.myntassets.com/h_1440,q_100,w_1080/v1/assets/images/2024/1/1/placeholder-hoodie.jpg", rating: 4.3, brand: "HRX" },
 ]
 
-export default function ProductsPage({ searchParams }: ProductsPageProps) {
-  const category = searchParams?.category as string | undefined
-  const q = searchParams?.q as string | undefined
-  const sort = searchParams?.sort as string | undefined
-  const size = searchParams?.size as string | undefined
-  const color = searchParams?.color as string | undefined
-  const minPrice = searchParams?.min_price as string | undefined
-  const maxPrice = searchParams?.max_price as string | undefined
-  const minDiscount = searchParams?.min_discount as string | undefined
-
-  // Use fallback products (API integration will be added when backend is running)
-  let products = [...fallbackProducts]
-  let count = products.length
-
-  // Sort products if needed
-  if (sort === "price_asc") {
-    products.sort((a, b) => a.price - b.price)
-  } else if (sort === "price_desc") {
-    products.sort((a, b) => b.price - a.price)
-  } else if (sort === "discount") {
-    products.sort((a, b) => {
-      const dA = a.originalPrice ? (a.originalPrice - a.price) / a.originalPrice : 0
-      const dB = b.originalPrice ? (b.originalPrice - b.price) / b.originalPrice : 0
-      return dB - dA
+// Cheapest variant price in rupees for a Medusa product, or the mock `price`.
+function cheapest(p: any): number {
+  if (p.variants?.length) {
+    const prices = p.variants.map((v: any) => {
+      const amt = v.prices?.[0]?.amount
+      return amt ? amt / 100 : 0
     })
+    return prices.length ? Math.min(...prices) : 0
+  }
+  return p.price ?? 0
+}
+
+function discountPct(p: any): number {
+  if (p.variants?.length) {
+    const prices = p.variants.map((v: any) => v.prices?.[0]?.amount ?? 0).filter(Boolean)
+    if (prices.length < 2) return 0
+    const min = Math.min(...prices)
+    const max = Math.max(...prices)
+    return max > min ? Math.round((1 - min / max) * 100) : 0
+  }
+  return p.originalPrice && p.originalPrice > p.price ? Math.round((1 - p.price / p.originalPrice) * 100) : 0
+}
+
+export default function ProductsPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-white flex items-center justify-center"><p className="text-[#94969F] text-sm">Loading products...</p></div>}>
+      <ProductsContent />
+    </Suspense>
+  )
+}
+
+function ProductsContent() {
+  const searchParams = useSearchParams()
+  const category = searchParams?.get("category") || undefined
+  const q = searchParams?.get("q") || undefined
+  const sort = searchParams?.get("sort") || undefined
+  const size = searchParams?.get("size") || undefined
+  const color = searchParams?.get("color") || undefined
+  const minPrice = searchParams?.get("min_price") || undefined
+  const maxPrice = searchParams?.get("max_price") || undefined
+  const minDiscount = searchParams?.get("min_discount") || undefined
+  const offset = Number(searchParams?.get("offset") || "0")
+
+  const [products, setProducts] = useState<any[]>([])
+  const [count, setCount] = useState(0)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let active = true
+    async function load() {
+      setLoading(true)
+      try {
+        const apiParams: any = { limit: 30, offset }
+        if (category) apiParams.category_id = [category]
+        if (q) apiParams.q = q
+        // price_from / price_to are expressed in rupees in the URL; the Medusa
+        // store API expects the smallest currency unit (paise).
+        if (minPrice) apiParams.price_from = Number(minPrice) * 100
+        if (maxPrice) apiParams.price_to = Number(maxPrice) * 100
+        const result = await getProducts(apiParams)
+        if (!active) return
+        setProducts(result.products || [])
+        setCount(result.count || (result.products?.length || 0))
+      } catch (err) {
+        console.warn("PLP: Medusa API unavailable, showing fallback products.", err)
+        if (!active) return
+        setProducts(fallbackProducts)
+        setCount(fallbackProducts.length)
+      }
+      setLoading(false)
+    }
+    load()
+    return () => { active = false }
+  }, [category, q, minPrice, maxPrice, offset])
+
+  // Sort on the client (the SDK query doesn't expose an order param).
+  const sortedProducts = useMemo(() => {
+    let list = [...products]
+    if (sort === "price_asc") {
+      list.sort((a, b) => cheapest(a) - cheapest(b))
+    } else if (sort === "price_desc") {
+      list.sort((a, b) => cheapest(b) - cheapest(a))
+    } else if (sort === "discount") {
+      list.sort((a, b) => discountPct(b) - discountPct(a))
+    }
+    return list
+  }, [products, sort])
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <p className="text-[#94969F] text-sm">Loading products...</p>
+      </div>
+    )
   }
 
   const buildFilterUrl = (key: string, value: string | null) => {
@@ -272,7 +340,7 @@ export default function ProductsPage({ searchParams }: ProductsPageProps) {
           {/* Sort Bar */}
           <div className="flex items-center justify-between py-4 border-b border-[#E9E9EB]">
             <p className="text-[13px] text-[#94969F]">
-              <span className="font-bold text-[#282C3F]">{products.length}</span> of{" "}
+              <span className="font-bold text-[#282C3F]">{sortedProducts.length}</span> of{" "}
               <span className="font-bold text-[#282C3F]">{count}</span> products
             </p>
             <div className="flex items-center gap-2">
@@ -296,9 +364,9 @@ export default function ProductsPage({ searchParams }: ProductsPageProps) {
           </div>
 
           {/* Product Grid */}
-          {products.length > 0 ? (
+          {sortedProducts.length > 0 ? (
             <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-[1px] bg-[#E9E9EB] mt-0">
-              {products.map((product: any) => (
+              {sortedProducts.map((product: any) => (
                 <div key={product.id} className="bg-white">
                   <ProductCard product={product} />
                 </div>
