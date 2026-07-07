@@ -1,0 +1,79 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: myntra-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: myntra
+      POSTGRES_PASSWORD: myntra_pass
+      POSTGRES_DB: myntra_store
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U myntra -d myntra_store"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:alpine
+    container_name: myntra-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  medusa:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: myntra-medusa
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    environment:
+      DATABASE_URL: postgres://myntra:myntra_pass@postgres:5432/myntra_store
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-myntra-jwt-secret}
+      COOKIE_SECRET: ${COOKIE_SECRET:-myntra-cookie-secret}
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
+      STORE_CORS: http://localhost:3000
+      ADMIN_CORS: http://localhost:9000
+      NODE_ENV: development
+    volumes:
+      - medusa_uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  storefront:
+    build:
+      context: ./storefront
+      dockerfile: Dockerfile
+    container_name: myntra-storefront
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_MEDUSA_URL: http://localhost:9000
+      MEDUSA_URL: http://medusa:9000
+    depends_on:
+      - medusa
+
+volumes:
+  postgres_data:
+  redis_data:
+  medusa_uploads:

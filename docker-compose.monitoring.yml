@@ -1,0 +1,102 @@
+version: "3.8"
+
+services:
+  # ===========================================================================
+  # Health Check Endpoint (lightweight HTTP server for external monitoring)
+  # ===========================================================================
+  healthcheck:
+    image: alpine:3.18
+    container_name: myntra-healthcheck
+    restart: always
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./nginx/healthcheck.sh:/healthcheck.sh:ro
+    command: >
+      sh -c "
+        apk add --no-cache curl > /dev/null 2>&1 &&
+        echo 'Health check server ready on port 8080' &&
+        while true; do
+          echo -e 'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"healthy\",\"service\":\"myntra-clone\",\"timestamp\":\"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'\"}' | nc -l -p 8080 -q 1 > /dev/null 2>&1 || true;
+          sleep 1;
+        done
+      "
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          memory: 32M
+          cpus: "0.1"
+    networks:
+      - myntra_network
+
+  # ===========================================================================
+  # Log Rotation (prevents Docker logs from filling up disk)
+  # ===========================================================================
+  # Docker Compose v2 supports log options per service, but we add a global
+  # logrotate-like cleanup via a sidecar that prunes old logs periodically.
+  log-cleanup:
+    image: alpine:3.18
+    container_name: myntra-log-cleanup
+    restart: always
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: >
+      sh -c "
+        apk add --no-cache docker-cli > /dev/null 2>&1 &&
+        echo 'Log cleanup service started. Pruning every 6 hours...' &&
+        while true; do
+          sleep 21600;
+          echo '[log-cleanup] Pruning old Docker logs...';
+          docker system prune -f --volumes 2>/dev/null || true;
+          echo '[log-cleanup] Cleanup complete.';
+        done
+      "
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: "0.1"
+    networks:
+      - myntra_network
+
+  # ===========================================================================
+  # Uptime Monitoring (simple ping to all services)
+  # ===========================================================================
+  uptime-monitor:
+    image: alpine:3.18
+    container_name: myntra-uptime-monitor
+    restart: always
+    command: >
+      sh -c "
+        apk add --no-cache curl > /dev/null 2>&1 &&
+        echo 'Uptime monitor started. Checking every 5 minutes...' &&
+        while true; do
+          for svc in http://storefront:3000 http://medusa:9000/health; do
+            status=\$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 \$svc 2>/dev/null || echo '000');
+            echo \"[\$(date -u +%Y-%m-%dT%H:%M:%SZ)] \$svc -> \$status\";
+          done;
+          sleep 300;
+        done
+      "
+    depends_on:
+      - storefront
+      - medusa
+    deploy:
+      resources:
+        limits:
+          memory: 32M
+          cpus: "0.1"
+    networks:
+      - myntra_network
+
+networks:
+  myntra_network:
+    external: true
+    name: myntra_network

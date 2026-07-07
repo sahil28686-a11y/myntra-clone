@@ -1,0 +1,95 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-primary: #FF3F6C;
+  --color-dark: #282C3F;
+  --color-text: #535766;
+  --color-muted: #696E79;
+  --color-muted-alt: #7E818C;
+  --color-muted-light: #94969F;
+  --color-border: #EAEAEC;
+  --color-bg: #FFFFFF;
+  --color-lightgray: #F5F5F6;
+  --color-footer-bg: #FAFBFC;
+  --color-section-title: #3E4152;
+  --header-height: 80px;
+  --header-height-mobile: 56px;
+  --max-width: 1280px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: "Figtree-Regular", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color: var(--color-dark);
+  background: var(--color-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  background: none;
+  font-family: inherit;
+}
+
+input, select, textarea {
+  font-family: inherit;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 3px;
+}
+
+/* Myntra-style utility classes */
+@layer components {
+  .btn-primary {
+    @apply bg-[#FF3F6C] text-white font-semibold py-3 px-8 uppercase tracking-wider text-sm
+      hover:opacity-90 transition-opacity;
+  }
+
+  .btn-secondary {
+    @apply bg-white text-[#282C3F] border-2 border-[#282C3F] font-semibold py-3 px-8 uppercase tracking-wider text-sm
+      hover:bg-[#282C3F] hover:text-white transition-colors;
+  }
+
+  .container-myntra {
+    @apply max-w-[1280px] mx-auto px-4 md:px-8;
+  }
+
+  .section-title {
+    @apply text-[1.8em] font-bold text-[#3E4152] uppercase tracking-[0.15em] my-[50px] mx-0;
+  }
+
+  .product-grid {
+    @apply grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 md:gap-6;
+  }
+}
