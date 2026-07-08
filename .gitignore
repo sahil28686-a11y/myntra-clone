@@ -17,6 +17,11 @@ backend/.medusa/
 !.env.example
 !.env.production.example
 
+# Local secrets file (never commit)
+/readme.txt
+/readme-secrets.txt
+secrets.txt
+
 # Logs
 dev-server*.log
 *.log
