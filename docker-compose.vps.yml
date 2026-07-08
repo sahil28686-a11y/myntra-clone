@@ -1,0 +1,171 @@
+# =============================================================================
+# Myntra Clone — VPS deploy (Hostinger KVM 2, NPM edge, *.smcloud.cloud)
+# =============================================================================
+# Edge: nginx-proxy-manager (NPM) on 80/443 + Let's Encrypt. This compose does
+# NOT publish any host ports. medusa + storefront attach to the external
+# `nginx-proxy` network so NPM routes by container name:
+#   shop.smcloud.cloud   -> ecom-storefront:3000
+#   api.smcloud.cloud    -> ecom-medusa:9000   (store API + admin at /app)
+#   admin.smcloud.cloud  -> ecom-medusa:9000
+#
+# Phased deploy (Next.js inlines NEXT_PUBLIC_* at BUILD time, so the storefront
+# image must be built AFTER seed.ts prints the publishable key):
+#   1. docker compose -f docker-compose.vps.yml up -d postgres redis
+#   2. docker compose -f docker-compose.vps.yml run --rm medusa npx medusa db:migrate
+#   3. docker compose -f docker-compose.vps.yml run --rm medusa npx medusa exec src/scripts/seed.ts
+#        -> capture the `token: pk_...` line, put it in .env as NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY
+#   4. docker compose -f docker-compose.vps.yml up -d medusa
+#   5. docker compose -f docker-compose.vps.yml up -d --build storefront
+# =============================================================================
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: ecom-postgres
+    restart: always
+    ports:
+      - "127.0.0.1:5434:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-myntra}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-myntra_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-myntra_store}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-myntra} -d ${POSTGRES_DB:-myntra_store}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+        reservations:
+          memory: 256M
+    networks:
+      - ecom_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: ecom-redis
+    restart: always
+    ports:
+      - "127.0.0.1:6380:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+    networks:
+      - ecom_network
+
+  medusa:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        NODE_ENV: production
+    image: ecom/medusa:latest
+    container_name: ecom-medusa
+    restart: always
+    expose:
+      - "9000"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://${POSTGRES_USER:-myntra}:${POSTGRES_PASSWORD:-myntra_pass}@postgres:5432/${POSTGRES_DB:-myntra_store}
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      COOKIE_SECRET: ${COOKIE_SECRET}
+      STORE_CORS: ${STORE_CORS:-https://shop.smcloud.cloud}
+      ADMIN_CORS: ${ADMIN_CORS:-https://admin.smcloud.cloud,https://api.smcloud.cloud}
+      AUTH_CORS: ${AUTH_CORS:-https://admin.smcloud.cloud,https://api.smcloud.cloud}
+      PORT: "9000"
+      MEDUSA_DISABLE_TELEMETRY: "true"
+    volumes:
+      - medusa_uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"
+        reservations:
+          memory: 512M
+    networks:
+      - ecom_network
+      - nginx-proxy
+
+  storefront:
+    build:
+      context: ./storefront
+      dockerfile: Dockerfile
+      args:
+        NODE_ENV: production
+        NEXT_PUBLIC_MEDUSA_URL: ${NEXT_PUBLIC_MEDUSA_URL}
+        NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY: ${NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY}
+    image: ecom/storefront:latest
+    container_name: ecom-storefront
+    restart: always
+    expose:
+      - "3000"
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_MEDUSA_URL: ${NEXT_PUBLIC_MEDUSA_URL}
+      NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY: ${NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY}
+      MEDUSA_URL: http://medusa:9000
+      PORT: "3000"
+    depends_on:
+      medusa:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+        reservations:
+          memory: 256M
+    networks:
+      - ecom_network
+      - nginx-proxy
+
+volumes:
+  postgres_data:
+    name: ecom_postgres_data
+  redis_data:
+    name: ecom_redis_data
+  medusa_uploads:
+    name: ecom_medusa_uploads
+
+networks:
+  ecom_network:
+    name: ecom_network
+    driver: bridge
+  nginx-proxy:
+    external: true

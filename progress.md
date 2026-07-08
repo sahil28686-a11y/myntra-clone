@@ -1,7 +1,34 @@
 # Myntra Clone — Progress Tracker
 
-> **Last Updated:** 2026-07-07
-> **Status:** 🚧 Phase 5: Deployment — In Progress
+> **Last Updated:** 2026-07-08
+> **Status:** 🟢 Phase 5: Deployment — LIVE on VPS (NPM edge, *.smcloud.cloud)
+
+## 🚀 Live Deployment (2026-07-08)
+
+Deployed to the Hostinger KVM 2 VPS (`72.61.171.205`, `*.smcloud.cloud`) behind the existing **nginx-proxy-manager (NPM)** edge + Let's Encrypt. Coolify's Traefik is disabled on this box, so the deploy mirrors the proven `storydiya-api`/`coolify` pattern.
+
+| URL | Forwards to | Purpose |
+|---|---|---|
+| `https://shop.smcloud.cloud` | host `:3100` (Next.js storefront) | Storefront |
+| `https://api.smcloud.cloud` | host `:9100` (Medusa backend) | Store API + admin at `/app` |
+| `https://admin.smcloud.cloud` | host `:9100` | Admin UI (alias) |
+
+**Runtime model:** Postgres + Redis in Docker (`ecom-postgres`/`ecom-redis`, exposed to host on `127.0.0.1:5434`/`6380`); Medusa backend + storefront built and run on the **host** as `systemd` services (`ecom-medusa.service`, `ecom-storefront.service`, `Restart=always`). NPM reaches the host services via the docker bridge gateway `172.22.0.1` (UFW rules added to allow `172.22.0.0/16` → host `9100`/`3100`).
+
+**Admin credentials:** created via `medusa user` — email/password stored only on the VPS (not committed).
+**Storefront publishable key (live):** `pk_cd6eed…` (full token stored only on the VPS; linked to Default Sales Channel via admin API).
+
+**VPS paths:** repo at `/docker/ecom-store`; logs `/var/log/ecom-medusa.log` + `/var/log/ecom-storefront.log`; secrets in `/docker/ecom-store/backend/.env` (chmod 600).
+
+### Deploy fixes made this session
+- Added `@medusajs/admin-sdk@2.17.2` as a direct backend dep (was only transitive/optional in the lockfile → `medusa build` failed on `defineWidgetConfig`/`defineRouteConfig` imports).
+- `medusa db:sync-links` run (link tables existed; the `PublishableApiKeySalesChannel` link is not registered in `medusa exec` context, so the seed's `remoteLink.create` for api_key↔sales_channel fails). Seed's key + products + region ARE created; the key→SC link is applied post-seed via the admin API (`POST /admin/api-keys/:id/sales-channels` body `{add:[sc_id]}`).
+- `backend/public` symlinked to `dist/public` so `medusa start` (which looks in `<cwd>/public/admin`) finds the built admin (build outputs to `dist/public/admin` due to `outDir: ./dist`).
+- `docker-compose.vps.yml` added (NPM-edge variant: no nginx/certbot services; postgres/redis exposed to host on `5434`/`6380`; medusa/storefront services kept for reference but run on host).
+- `storefront/Dockerfile` made multi-stage + accepts `NEXT_PUBLIC_*` build args (for the container path; the live deploy builds on host instead, with `.env.local` read by Next at build time).
+
+### Why not built in Docker
+`docker build` (buildkit) on this VPS could not reach `registry.npmjs.org` efficiently — `@medusajs/*` packument fetches took 85–102s each inside buildkit, while host `curl` to npmjs was fast. So `npm ci` + `medusa build` + `next build` were run on the host (fast), and the services run on the host under systemd. Re-containerization can revisit `docker build --network=host` if desired.
 
 ---
 
@@ -239,3 +266,4 @@
 | 2026-07-07 | 5 | Refined PDP to match Myntra design: image gallery with hover zoom, thumbnail opacity states, brand/price/rating sections, size selector, pincode checker, add-to-bag button, delivery info, product details, ratings breakdown. Fixed ProductCard.tsx syntax error. Build succeeds with all 13 pages. | Continue refinement of remaining pages. |
 | 2026-07-07 | 6 | Fresh evidence-based audit of current codebase. Verified old audit was stale (v1→v2 migration done, prices/auth/cart/headsearch fixed). Real findings: CRITICAL = no payment provider (checkout can't complete), publishable key not reproducible, setup.sh broken; HIGH = custom admin extensions misstructured for v2; MEDIUM = no account auth guards, broken /collections/ PDP link. Both storefront+backend tsc 0 errors. | Fix criticals + mediums via DeepSeek workers + GLM 5.2 review gate. |
 | 2026-07-07 | 7 | Autonomously fixed all audit findings via DeepSeek workers (Flash=mechanical, V4 Pro=deep v2) + GLM 5.2 review gate verifying every diff against installed node_modules. Two commits: 61d3198 (M4b v2 SDK migration, pre-existing work reviewed+committed) and 347ae9b (audit fixes). Fixes: (1) checkout payment -> built-in SystemPaymentProvider pp_system_default (auto-registered by @medusajs/payment, verified in loaders/providers.js:53); (2) seed.ts now creates+links a publishable API key (idempotent by title+type; gate fixed worker's token-lookup bug); (3) setup.sh -> unified seed.ts; (4) account auth guards on dashboard/orders/wishlist/addresses -> redirect to /account; (5) PDP /collections/ -> /products?collection=; (6) wishlist v2 price fields; (7) admin: dashboard widget fixed (zone order.list.before + correct export shape), 6 routes got defineRouteConfig + re-pointed to v2 native endpoints (/admin/promotions, /admin/stores, count-based pagination), new /admin/analytics/dashboard + /admin/products/bulk-upload routes; (8) gate: registered multer middleware + installed multer/@types/multer (v2 doesn't auto-parse multipart). Both tsc 0 errors, working tree clean. | RUNTIME SMOKE TEST (user will do): seed -> copy printed publishable token to storefront/.env.local -> /store products -> add-to-cart -> checkout complete (COD pp_system_default) -> account auth guard -> admin analytics + bulk-upload (multer) + settings (/admin/stores). Then Phase 2 pixel-perfect (~40%) and Phase 5 deploy (DNS/secrets/CI/CD) remain. |
+| 2026-07-08 | 8 | **DEPLOYED LIVE to VPS** (Hostinger KVM 2, NPM edge, *.smcloud.cloud). Discovered the VPS edge is nginx-proxy-manager (NPM), NOT Coolify's Traefik (disabled). Built + ran Medusa backend & storefront on the host (buildkit npm ci was network-broken inside buildkit → 85-102s/packument; host network fine). Postgres+Redis in Docker (host ports 5434/6380). Fixed: added @medusajs/admin-sdk dep (build was failing on admin imports); ran db:sync-links; symlinked backend/public→dist/public for medusa start; UFW allow 172.22.0.0/16→9100/3100 so NPM can reach host services via bridge gateway. Created 3 NPM proxy hosts with LE certs (shop/api/admin.smcloud.cloud). Seeded (5 products, India/INR region, sales channel); linked publishable key→SC via admin API (seed's remoteLink for api_key↔sales_channel fails in medusa exec context — PublishableApiKeySalesChannel link not registered there). systemd services ecom-medusa + ecom-storefront (Restart=always). **Verified live:** https://api.smcloud.cloud/store/products → 5 products; https://shop.smcloud.cloud → 200 (122KB, Myntra homepage renders); https://admin.smcloud.cloud/app → 200. Admin user created (credentials on VPS only). | Remaining: add-to-cart + COD checkout live smoke test; fix seed.ts api_key↔sales_channel link for reproducibility; Phase 2 pixel-perfect (~40%); favicon; production secrets rotation; monitoring. |
